@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #f3efe6;
+  --color-paper: #12110e;
+  --color-panel: #1c1a17;
+  --color-line: #34302a;
+  --color-muted: #a8a296;
+  --color-danger: #fb7185;
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--color-paper);
+    color: var(--color-ink);
+  }
+
+  body {
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+.react-flow {
+  height: 100%;
+  width: 100%;
+  background: var(--color-paper);
+  --xy-background-color: var(--color-paper);
+  --xy-background-pattern-color: #3a362f;
+  --xy-node-color: var(--color-ink);
+  --xy-minimap-background-color: var(--color-panel);
+}
+
+.react-flow__node {
+  overflow: visible;
+}
+
+.react-flow__node.selected > div {
+  outline: 2px solid #f3efe6;
+  outline-offset: 4px;
+  border-radius: 0.75rem;
+}
