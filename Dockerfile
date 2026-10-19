@@ -5,7 +5,9 @@ RUN npm ci
 COPY . .
 ENV NITRO_PRESET=node
 ENV VITE_AUTH_ENABLED=true
-RUN node scripts/with-app-env.mjs vite build
+# npm puts node_modules/.bin on PATH. Calling the wrapper directly does not,
+# so `vite` is missing and the build exits with ENOENT.
+RUN npm run build:node
 
 FROM node:22-bookworm-slim
 WORKDIR /app
