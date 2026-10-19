@@ -2,10 +2,12 @@ node_modules/
 .grok/
 artifacts/
 screenshots/
+.output/
 .vercel/
 dist/
 .env
 .env.*
+!.env.example
 *.log
 .project_id
 .node_modules.lock

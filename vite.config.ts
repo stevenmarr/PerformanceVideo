@@ -170,7 +170,9 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            // `NITRO_PRESET=node` builds a long-running Node server for a droplet.
+            // The default stays the Vercel preset used by the hosted publish path.
+            preset: process.env.NITRO_PRESET === "node" ? "node-server" : "vercel",
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
