@@ -71,7 +71,7 @@ export function GearNodeCard({
         className="flex items-center justify-between gap-2 rounded-t-xl px-3 py-2 text-xs font-semibold tracking-[0.14em] uppercase"
         style={{ background: color, color: inkOn(color) }}
       >
-        <span>{deviceType || "Device"}</span>
+        <span className="min-w-0 truncate">{deviceType || "Device"}</span>
         {selected ? (
           <span className="rounded-full bg-paper px-2 py-0.5 text-[10px] font-semibold tracking-normal text-ink normal-case">
             Selected
@@ -79,18 +79,26 @@ export function GearNodeCard({
         ) : null}
       </div>
       <div className="px-3 pt-2 pb-1">
-        <p className="text-sm font-semibold leading-tight">{manufacturer || "Manufacturer"}</p>
-        <p className="text-sm leading-tight">{model || "Model"}</p>
-        {unit ? <p className="text-xs font-semibold text-ink">{unit}</p> : null}
-        {ip ? <p className="text-xs text-muted">{ip}</p> : null}
+        <p className="truncate text-sm font-semibold leading-tight">{manufacturer || "Manufacturer"}</p>
+        <p className="truncate text-sm leading-tight">{model || "Model"}</p>
+        {unit ? <p className="truncate text-xs font-semibold text-ink">{unit}</p> : null}
+        {ip ? <p className="truncate text-xs text-muted">{ip}</p> : null}
         {detail ? <p className="mt-1 line-clamp-2 text-xs text-muted">{detail}</p> : null}
       </div>
       <div className="relative" style={{ height: rows * 32 + 8 }}>
-        {inputs.map((pin, index) => (
-          <PinRow key={pin.id ?? `in-${index}`} pin={pin} index={index} side="input" color={signalColors[pin.signal] ?? "#e7e5e4"} wired={wired} />
-        ))}
-        {outputs.map((pin, index) => (
-          <PinRow key={pin.id ?? `out-${index}`} pin={pin} index={index} side="output" color={signalColors[pin.signal] ?? "#e7e5e4"} wired={wired} />
+        {Array.from({ length: rows }, (_, index) => (
+          <div key={index} className="absolute right-0 left-0 flex" style={{ top: 8 + index * 32, height: 28 }}>
+            <div className="relative flex w-1/2 min-w-0 items-center gap-1">
+              {inputs[index] ? (
+                <PinRow pin={inputs[index]} side="input" color={signalColors[inputs[index].signal] ?? "#e7e5e4"} wired={wired} />
+              ) : null}
+            </div>
+            <div className="relative flex w-1/2 min-w-0 items-center justify-end gap-1">
+              {outputs[index] ? (
+                <PinRow pin={outputs[index]} side="output" color={signalColors[outputs[index].signal] ?? "#e7e5e4"} wired={wired} />
+              ) : null}
+            </div>
+          </div>
         ))}
       </div>
     </div>
@@ -99,26 +107,21 @@ export function GearNodeCard({
 
 function PinRow({
   pin,
-  index,
   side,
   color,
   wired,
 }: {
   pin: CardPin;
-  index: number;
   side: "input" | "output";
   color: string;
   wired: boolean;
 }) {
-  const top = 8 + index * 32;
   const dot = (
     <span className="h-3 w-3 shrink-0 rounded-full border" style={{ background: color, borderColor: color }} />
   );
+  const label = `${pin.label || "Connection"} · ${pin.signal || "Signal"}`;
   return (
-    <div
-      className={`absolute flex items-center gap-2 ${side === "input" ? "left-0 justify-start" : "right-0 justify-end"}`}
-      style={{ top, width: "100%" }}
-    >
+    <>
       {side === "input" && wired ? (
         <Handle
           type="target"
@@ -128,7 +131,7 @@ function PinRow({
         />
       ) : null}
       {side === "input" && !wired ? <span className="ml-1">{dot}</span> : null}
-      <span className={`px-3 text-xs leading-tight ${side === "input" ? "text-left" : "text-right"}`}>
+      <span className={`min-w-0 truncate px-2 text-xs leading-tight ${side === "input" ? "text-left" : "text-right"}`} title={label}>
         {pin.label || "Connection"}
         <span style={{ color }}> · {pin.signal || "Signal"}</span>
       </span>
@@ -141,6 +144,6 @@ function PinRow({
           style={{ background: color, borderColor: color, width: 12, height: 12, right: -6 }}
         />
       ) : null}
-    </div>
+    </>
   );
 }

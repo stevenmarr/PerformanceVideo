@@ -804,17 +804,17 @@ export function FlowCanvas({
       <aside className="max-h-40 shrink-0 overflow-y-auto border-b border-line bg-panel md:max-h-none md:w-72 md:border-r md:border-b-0">
         <Picker categories={groups} />
       </aside>
-      <div className="relative min-h-0 min-w-0 flex-1">
-        <div className="pointer-events-none absolute top-3 right-3 left-3 z-30 flex flex-wrap items-start justify-between gap-2">
-          <div className="pointer-events-none flex max-w-xl flex-col gap-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-panel px-3 py-2">
+          <div className="flex min-w-0 flex-col gap-1">
             <p className="rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-sm">{hint}</p>
             {titleLine ? <p className="px-4 text-xs text-muted">{titleLine}</p> : null}
             <p className="px-4 text-xs text-muted">Drag empty canvas to select. Shift adds. Ctrl or ⌘ toggles. Space or the middle mouse pans.</p>
           </div>
-          <div className="pointer-events-auto flex max-w-full flex-wrap justify-end gap-2">
+          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
             <select
               aria-label="Open a drawing"
-              className="max-w-40 rounded-full border border-line bg-panel px-3 py-2 text-sm text-ink"
+              className="h-10 max-w-64 min-w-40 rounded-xl border border-line bg-panel px-3 text-sm text-ink"
               value={drawingId ?? ""}
               onChange={(event) => {
                 const id = Number(event.target.value);
@@ -830,7 +830,7 @@ export function FlowCanvas({
             </select>
             <input
               aria-label="Drawing name"
-              className="w-36 rounded-full border border-line bg-panel px-3 py-2 text-sm text-ink outline-none"
+              className="h-10 w-48 rounded-xl border border-line bg-panel px-3 text-sm text-ink outline-none"
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
@@ -873,10 +873,11 @@ export function FlowCanvas({
             </button>
           </div>
         </div>
+        <div className="relative min-h-0 flex-1">
         {pendingGroup ? (
           <form
             onSubmit={commitGroup}
-            className="absolute top-28 left-3 z-30 flex flex-wrap items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 shadow-sm"
+            className="absolute top-3 left-3 z-30 flex flex-wrap items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 shadow-sm"
           >
             <label className="text-sm">
               Group name
@@ -898,7 +899,7 @@ export function FlowCanvas({
         {systemFor ? (
           <form
             onSubmit={(event) => void commitSystem(event)}
-            className="absolute top-28 left-3 z-30 w-80 rounded-2xl border border-line bg-panel p-4 shadow-lg"
+            className="absolute top-3 left-3 z-30 w-80 rounded-2xl border border-line bg-panel p-4 shadow-lg"
           >
             <p className="text-sm font-semibold">Save group as a system</p>
             <p className="mt-1 text-xs text-muted">
@@ -1058,7 +1059,7 @@ export function FlowCanvas({
             zoomOnScroll
           >
             <Background gap={18} size={1} color="#3a362f" />
-            <Controls />
+            <Controls style={active && sheet === "draw" ? { marginLeft: 300 } : undefined} />
             <MiniMap pannable zoomable />
             <ViewportPortal>
               {showGroups.map((group) => {
@@ -1205,6 +1206,7 @@ export function FlowCanvas({
             )}
           </div>
         ) : null}
+        </div>
       </div>
     </div>
   );
@@ -1270,23 +1272,32 @@ function ListSheet({
   onClose: () => void;
 }) {
   const header = rows[0] ?? [];
-  const body = rows.slice(1);
+  const source = rows.slice(1);
+  const [sort, setSort] = useState<{ index: number; dir: "asc" | "desc" }>({ index: 0, dir: "asc" });
+  const body = [...source].sort((a, b) => compareCells(a[sort.index] ?? "", b[sort.index] ?? "") * (sort.dir === "asc" ? 1 : -1));
+
+  function toggleSort(index: number) {
+    setSort((current) =>
+      current.index === index ? { index, dir: current.dir === "asc" ? "desc" : "asc" } : { index, dir: "asc" },
+    );
+  }
+
   return (
-    <div className="absolute inset-0 z-20 overflow-auto bg-paper/95 p-4 pt-36">
+    <div className="absolute inset-0 z-20 overflow-auto bg-paper/95 p-4">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">{kind === "patch" ? "Patch" : "Pull list"}</h2>
           <p className="mt-1 max-w-xl text-sm text-muted">
             {kind === "patch"
-              ? "Each cable names the unit ID on both ends. Length is whatever you typed on the cable."
-              : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it."}
+              ? "Each cable names the unit ID on both ends. Length is whatever you typed on the cable. Click a column to sort."
+              : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it. Click a column to sort."}
           </p>
         </div>
         <div className="flex gap-2">
           <button
             type="button"
             className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
-            onClick={() => downloadCsv(filename, rows)}
+            onClick={() => downloadCsv(filename, [header, ...body])}
           >
             Download CSV
           </button>
@@ -1322,9 +1333,12 @@ function ListSheet({
           <table className="w-full min-w-[40rem] text-left text-sm">
             <thead className="bg-panel text-xs tracking-[0.12em] text-muted uppercase">
               <tr>
-                {header.map((cell) => (
+                {header.map((cell, index) => (
                   <th key={cell} className="px-3 py-2 font-semibold">
-                    {cell}
+                    <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(index)}>
+                      {cell}
+                      <span aria-hidden="true">{sort.index === index ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}</span>
+                    </button>
                   </th>
                 ))}
               </tr>
@@ -1334,7 +1348,7 @@ function ListSheet({
                 <tr key={index} className="border-t border-line">
                   {row.map((cell, cellIndex) => (
                     <td key={cellIndex} className="px-3 py-2 align-top">
-                      {kind === "pull" && cellIndex === 0 ? `${cell} × ${row[1]}` : cell}
+                      {cell}
                     </td>
                   ))}
                 </tr>
@@ -1345,6 +1359,13 @@ function ListSheet({
       )}
     </div>
   );
+}
+
+function compareCells(left: string, right: string) {
+  const ln = Number(left);
+  const rn = Number(right);
+  if (left.trim() !== "" && right.trim() !== "" && Number.isFinite(ln) && Number.isFinite(rn)) return ln - rn;
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function isMacPlatform() {
