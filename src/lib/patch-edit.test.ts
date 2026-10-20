@@ -24,7 +24,7 @@ const boxes: PatchBox[] = [
 ];
 
 const cables: PatchCable[] = [
-  { id: "e1", source: "a", target: "b", sourceHandle: "o1", targetHandle: "i1", length: "Patch", notes: "" },
+  { id: "e1", source: "a", target: "b", sourceHandle: "o1", targetHandle: "i1", length: "", notes: "", cableType: "", throwdown: "" },
 ];
 
 describe("patch edits", () => {
@@ -39,15 +39,16 @@ describe("patch edits", () => {
 
   it("applies a csv back onto the same cables", () => {
     const csv = [
-      "Cable ID,Source unit ID,From connection,To connection,Destination unit ID,Length,Notes",
-      "e1,RS6-0,Out 2,SDI In,MON,25 ft,record",
+      "Cable ID,Unit ID,Jack type,Signal,Output jack,Unit ID,Jack type,Signal,Input jack,Cable",
+      "e1,RS6-0,Out,12G-SDI,Out 2,MON,In,12G-SDI,SDI In,12G-SDI · 25'",
     ].join("\n");
     const result = applyPatchCsv(boxes, cables, csv);
     assert.deepEqual(result.errors, []);
     assert.equal(result.applied, 1);
     assert.equal(result.cables[0].sourceHandle, "o2");
     assert.equal(result.cables[0].target, "c");
-    assert.equal(result.cables[0].length, "25 ft");
-    assert.equal(result.cables[0].notes, "record");
+    assert.equal(result.cables[0].length, "25'");
+    assert.equal(result.cables[0].cableType, "12G-SDI");
+    assert.equal(result.cables[0].throwdown, "");
   });
 });

@@ -10,8 +10,30 @@ export type PatchCable = {
   targetHandle: string;
   length: string;
   notes: string;
+  cableType: string;
+  throwdown: string;
 };
-export type PatchField = "sourceUnit" | "from" | "to" | "destUnit" | "length" | "notes";
+export type PatchField = "sourceUnit" | "from" | "to" | "destUnit" | "length" | "notes" | "cableType" | "throwdown";
+
+export const CABLE_LENGTHS = ["patch < 10'", "10'", "25'", "50'", "100'", "200'", "100M", "1000'"] as const;
+export const THROWDOWNS = ["AJA FiDO"] as const;
+
+export function formatCable(type: string, length: string, throwdown: string) {
+  return [type, length, throwdown].map((part) => part.trim()).filter(Boolean).join(" · ");
+}
+
+export function parseCableLabel(value: string): { cableType: string; length: string; throwdown: string } {
+  const parts = value.split("·").map((part) => part.trim()).filter(Boolean);
+  let length = "";
+  let throwdown = "";
+  const rest: string[] = [];
+  for (const part of parts) {
+    if (!length && (CABLE_LENGTHS as readonly string[]).includes(part)) length = part;
+    else if (!throwdown && (THROWDOWNS as readonly string[]).includes(part)) throwdown = part;
+    else rest.push(part);
+  }
+  return { cableType: rest.join(" · "), length, throwdown };
+}
 
 const SDI_LEVEL: Record<string, number> = { "3G-SDI": 3, "12G-SDI": 12 };
 
@@ -40,6 +62,8 @@ export function assignCable(
     to?: string;
     length?: string;
     notes?: string;
+    cableType?: string;
+    throwdown?: string;
   },
 ): { cables: PatchCable[]; error: string | null; signal: string } {
   const current = cables.find((cable) => cable.id === edgeId);
@@ -87,6 +111,8 @@ export function assignCable(
     targetHandle: targetPin.id,
     length: change.length ?? current.length,
     notes: change.notes ?? current.notes,
+    cableType: change.cableType ?? current.cableType ?? "",
+    throwdown: change.throwdown ?? current.throwdown ?? "",
   };
   return { cables: cables.map((cable) => (cable.id === edgeId ? next : cable)), error: null, signal: sourcePin.signal };
 }
@@ -99,7 +125,9 @@ export function reassignCable(
   value: string,
   unitBy: "id" | "unit" = "id",
 ): { cables: PatchCable[]; error: string | null; signal: string } {
-  if (field === "length" || field === "notes") return assignCable(boxes, cables, edgeId, { [field]: value });
+  if (field === "length" || field === "notes" || field === "cableType" || field === "throwdown") {
+    return assignCable(boxes, cables, edgeId, { [field]: value });
+  }
   if (field === "from") return assignCable(boxes, cables, edgeId, { from: value });
   if (field === "to") return assignCable(boxes, cables, edgeId, { to: value });
   if (field === "sourceUnit") {
@@ -157,8 +185,10 @@ export function applyPatchCsv(
   const table = parseCsv(text);
   const header = (table[0] ?? []).map((cell) => cell.trim().toLowerCase());
   const column = (name: string) => header.indexOf(name);
+  const every = (name: string) => header.flatMap((cell, index) => (cell === name ? [index] : []));
   const idCol = column("cable id");
   if (idCol < 0) return { cables, applied: 0, errors: ["The CSV needs a Cable ID column."] };
+  const unitCols = every("unit id");
   let next = cables;
   let applied = 0;
   const errors: string[] = [];
@@ -169,13 +199,14 @@ export function applyPatchCsv(
       const indexOf = column(name);
       return indexOf < 0 ? undefined : (cells[indexOf] ?? "");
     };
+    const cable = at("cable");
+    const spec = cable === undefined ? {} : parseCableLabel(cable);
     const result = assignCable(boxes, next, edgeId, {
-      sourceUnit: at("source unit id"),
-      from: at("from connection"),
-      destUnit: at("destination unit id"),
-      to: at("to connection"),
-      length: at("length"),
-      notes: at("notes"),
+      sourceUnit: unitCols[0] === undefined ? undefined : (cells[unitCols[0]] ?? ""),
+      from: at("output jack"),
+      destUnit: unitCols[1] === undefined ? undefined : (cells[unitCols[1]] ?? ""),
+      to: at("input jack"),
+      ...spec,
     });
     if (result.error) {
       errors.push(`Row ${index + 2}: ${result.error}`);

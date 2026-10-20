@@ -26,7 +26,7 @@ import type { Catalog, EquipmentRow, Pin } from "@/lib/catalog.functions";
 import { saveSystem, updateSystemGraph } from "@/lib/drawing.functions";
 import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle } from "@/lib/drawing";
 import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
-import { applyPatchCsv, reassignCable, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
+import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
 
 type EquipmentNodeData = {
   equipmentId: number;
@@ -43,7 +43,7 @@ type EquipmentNodeData = {
 };
 
 type EquipmentNode = Node<EquipmentNodeData, "equipment">;
-type CableData = { length: string; notes: string; signal: string };
+type CableData = { length: string; notes: string; signal: string; cableType: string; throwdown: string };
 type CableEdge = Edge<CableData>;
 type ShowGroup = DrawingGroup;
 
@@ -206,8 +206,14 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
       target: edge.target,
       sourceHandle: edge.sourceHandle,
       targetHandle: edge.targetHandle,
-      data: { length: edge.length ?? "", notes: edge.notes ?? "", signal },
-      label: edge.length || undefined,
+      data: {
+        length: edge.length ?? "",
+        notes: edge.notes ?? "",
+        signal,
+        cableType: edge.cableType ?? "",
+        throwdown: edge.throwdown ?? "",
+      },
+      label: formatCable(edge.cableType ?? "", edge.length ?? "", edge.throwdown ?? "") || undefined,
       labelStyle: { fill: "#f3efe6", fontSize: 11 },
       labelBgStyle: { fill: "#1c1a17" },
       style: { stroke: colors[signal] ?? "#e7e5e4", strokeWidth: 2 },
@@ -246,6 +252,8 @@ function toFile(
       targetHandle: edge.targetHandle ?? "",
       length: edge.data?.length ?? "",
       notes: edge.data?.notes ?? "",
+      cableType: edge.data?.cableType ?? "",
+      throwdown: edge.data?.throwdown ?? "",
     })),
     groups,
   };
@@ -428,7 +436,7 @@ export function FlowCanvas({
         addEdge(
           {
             ...connection,
-            data: { length: "", notes: "", signal: sourcePin?.signal ?? "" },
+            data: { length: "", notes: "", signal: sourcePin?.signal ?? "", cableType: "", throwdown: "" },
             type: edgeType(cableStyle),
             style: { stroke: color, strokeWidth: 2 },
           },
@@ -746,6 +754,8 @@ export function FlowCanvas({
               targetHandle: edge.targetHandle ?? "",
               length: edge.data?.length ?? "",
               notes: edge.data?.notes ?? "",
+              cableType: edge.data?.cableType ?? "",
+              throwdown: edge.data?.throwdown ?? "",
             })),
           ports: [],
         },
@@ -788,6 +798,8 @@ export function FlowCanvas({
               targetHandle: edge.targetHandle ?? "",
               length: edge.data?.length ?? "",
               notes: edge.data?.notes ?? "",
+              cableType: edge.data?.cableType ?? "",
+              throwdown: edge.data?.throwdown ?? "",
             })),
             ports: (previous?.ports ?? []).filter((port) => kept.has(port.nodeId)),
           },
@@ -820,11 +832,18 @@ export function FlowCanvas({
     setEdges((current) =>
       current.map((edge) => {
         if (edge.id !== id) return edge;
-        const data = { length: edge.data?.length ?? "", notes: edge.data?.notes ?? "", signal: edge.data?.signal ?? "", ...patch };
+        const data = {
+          length: edge.data?.length ?? "",
+          notes: edge.data?.notes ?? "",
+          signal: edge.data?.signal ?? "",
+          cableType: edge.data?.cableType ?? "",
+          throwdown: edge.data?.throwdown ?? "",
+          ...patch,
+        };
         return {
           ...edge,
           data,
-          label: data.length || undefined,
+          label: formatCable(data.cableType, data.length, data.throwdown) || undefined,
           labelStyle: { fill: "#f3efe6", fontSize: 11 },
           labelBgStyle: { fill: "#1c1a17" },
         };
@@ -845,6 +864,8 @@ export function FlowCanvas({
       targetHandle: edge.targetHandle ?? "",
       length: edge.data?.length ?? "",
       notes: edge.data?.notes ?? "",
+      cableType: edge.data?.cableType ?? "",
+      throwdown: edge.data?.throwdown ?? "",
     }));
   }
 
@@ -864,9 +885,11 @@ export function FlowCanvas({
         data: {
           length: cable.length,
           notes: cable.notes,
+          cableType: cable.cableType,
+          throwdown: cable.throwdown,
           signal: changed ? signal : (edge.data?.signal ?? ""),
         },
-        label: cable.length || undefined,
+        label: formatCable(cable.cableType, cable.length, cable.throwdown) || undefined,
         labelStyle: { fill: "#f3efe6", fontSize: 11 },
         labelBgStyle: { fill: "#1c1a17" },
         style: changed ? { stroke: color, strokeWidth: edge.style?.strokeWidth ?? 2 } : edge.style,
@@ -876,6 +899,15 @@ export function FlowCanvas({
 
   function applyCableChange(edgeId: string, field: PatchField, value: string) {
     const result = reassignCable(boxesOf(nodes), cablesOf(edges), edgeId, field, value, "id");
+    if (result.error) {
+      setHint(result.error);
+      return;
+    }
+    setEdges(paintCables(edges, result.cables, result.signal, edgeId));
+  }
+
+  function applyCableSpec(edgeId: string, spec: { cableType: string; length: string; throwdown: string }) {
+    const result = assignCable(boxesOf(nodes), cablesOf(edges), edgeId, spec);
     if (result.error) {
       setHint(result.error);
       return;
@@ -947,6 +979,8 @@ export function FlowCanvas({
         targetHandle: item.targetHandle,
         length: item.length,
         notes: item.notes,
+        cableType: item.cableType ?? "",
+        throwdown: item.throwdown ?? "",
       })),
     };
     const next = hydrate(file, catalog);
@@ -1354,6 +1388,7 @@ export function FlowCanvas({
             onClearFocus={() => setPatchFocus(null)}
             nodes={nodes}
             onPatch={applyCableChange}
+            onCable={applyCableSpec}
             onApplyCsv={applyCableFile}
             onClose={() => setSheet("draw")}
           />
@@ -1492,16 +1527,16 @@ export function FlowCanvas({
 
 function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
   const header = [
-    "Cable ID",
-    "Source unit ID",
-    "Source model",
+    "Unit ID",
+    "In / Out",
     "Signal",
-    "From connection",
-    "To connection",
-    "Destination unit ID",
-    "Destination model",
-    "Length",
-    "Notes",
+    "Output jack",
+    "Unit ID",
+    "In / Out",
+    "Signal",
+    "Input jack",
+    "Cable",
+    "Cable ID",
   ];
   const body = edges.map((edge) => {
     const source = nodes.find((node) => node.id === edge.source);
@@ -1509,16 +1544,16 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
     const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
     const to = target?.data.pins.find((pin) => pin.id === edge.targetHandle);
     return [
-      edge.id,
       source?.data.unitId ?? "",
-      source ? `${source.data.manufacturer} ${source.data.model}` : "",
+      from ? (from.direction === "input" ? "In" : "Out") : "",
       from?.signal ?? edge.data?.signal ?? "",
       from?.label ?? "",
-      to?.label ?? "",
       target?.data.unitId ?? "",
-      target ? `${target.data.manufacturer} ${target.data.model}` : "",
-      edge.data?.length ?? "",
-      edge.data?.notes ?? "",
+      to ? (to.direction === "output" ? "Out" : "In") : "",
+      to?.signal ?? "",
+      to?.label ?? "",
+      formatCable(edge.data?.cableType ?? "", edge.data?.length ?? "", edge.data?.throwdown ?? ""),
+      edge.id,
     ];
   });
   return [header, ...body];
@@ -1529,7 +1564,7 @@ function parseSystemGraph(raw: string | undefined) {
   try {
     const parsed = JSON.parse(raw) as {
       nodes?: { id: string; equipmentId: number; unitId: string; ip: string; specialNotes: string; x: number; y: number }[];
-      edges?: { id: string; source: string; target: string; sourceHandle: string; targetHandle: string; length: string; notes: string }[];
+      edges?: { id: string; source: string; target: string; sourceHandle: string; targetHandle: string; length: string; notes: string; cableType?: string; throwdown?: string }[];
       ports?: { id: string; nodeId: string; pinId: string }[];
     };
     if (!parsed || !Array.isArray(parsed.nodes)) return null;
@@ -1580,10 +1615,11 @@ function PatchPop({
           <table className="w-full text-left text-xs">
             <tbody>
               {body.slice(0, 12).map((row) => (
-                <tr key={row[0]} className="border-t border-line first:border-t-0">
-                  <td className="px-2 py-1">{row[1]} {row[4]}</td>
+                <tr key={row[9] || row[3]} className="border-t border-line first:border-t-0">
+                  <td className="px-2 py-1">{row[0]} {row[3]}</td>
                   <td className="px-2 py-1 text-muted">→</td>
-                  <td className="px-2 py-1">{row[6]} {row[5]}</td>
+                  <td className="px-2 py-1">{row[4]} {row[7]}</td>
+                  <td className="px-2 py-1 text-muted">{row[8]}</td>
                 </tr>
               ))}
             </tbody>
@@ -1638,6 +1674,7 @@ function ListSheet({
   onClearFocus,
   nodes,
   onPatch,
+  onCable,
   onApplyCsv,
 }: {
   kind: "patch" | "pull";
@@ -1650,6 +1687,7 @@ function ListSheet({
   onClearFocus?: () => void;
   nodes?: EquipmentNode[];
   onPatch?: (edgeId: string, field: PatchField, value: string) => void;
+  onCable?: (edgeId: string, spec: { cableType: string; length: string; throwdown: string }) => void;
   onApplyCsv?: (text: string) => void;
 }) {
   const header = rows[0] ?? [];
@@ -1670,7 +1708,7 @@ function ListSheet({
           <h2 className="text-lg font-semibold">{kind === "patch" ? (focusLabel ? `Patch · ${focusLabel}` : "Patch") : "Pull list"}</h2>
           <p className="mt-1 max-w-xl text-sm text-muted">
             {kind === "patch"
-              ? "Change a unit ID or a connection and the cable moves on the drawing. Cable ID is how an uploaded CSV finds the same row. Download this sheet for one department."
+              ? "Read left to right. Change a unit or a jack and the cable moves. The last column stays blank until you assign a cable."
               : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it. Click a column to sort."}
           </p>
         </div>
@@ -1735,28 +1773,32 @@ function ListSheet({
           <table className="w-full min-w-[40rem] text-left text-sm">
             <thead className="bg-panel text-xs tracking-[0.12em] text-muted uppercase">
               <tr>
-                {header.map((cell, index) => (
-                  <th key={cell} className="px-3 py-2 font-semibold">
-                    <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(index)}>
-                      {cell}
-                      <span aria-hidden="true">{sort.index === index ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}</span>
-                    </button>
-                  </th>
-                ))}
+                {header.map((cell, index) =>
+                    cell === "Cable ID" ? null : (
+                    <th key={`${cell}-${index}`} className="px-3 py-2 font-semibold">
+                      <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(index)}>
+                        {cell}
+                        <span aria-hidden="true">{sort.index === index ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}</span>
+                      </button>
+                    </th>
+                    ),
+                  )}
               </tr>
             </thead>
             <tbody>
               {body.map((row, index) => (
                 <tr key={index} className="border-t border-line">
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} className="px-3 py-2 align-top">
-                      {kind === "patch" && onPatch && nodes ? (
-                        <PatchCell row={row} index={cellIndex} nodes={nodes} onPatch={onPatch} />
-                      ) : (
-                        cell
-                      )}
-                    </td>
-                  ))}
+                  {row.map((cell, cellIndex) =>
+                      header[cellIndex] === "Cable ID" ? null : (
+                      <td key={cellIndex} className="px-3 py-2 align-top">
+                        {kind === "patch" && onPatch && nodes ? (
+                          <PatchCell row={row} index={cellIndex} nodes={nodes} onPatch={onPatch} onCable={onCable} />
+                        ) : (
+                          cell
+                        )}
+                      </td>
+                      ),
+                    )}
                 </tr>
               ))}
             </tbody>
@@ -1772,32 +1814,24 @@ function PatchCell({
   index,
   nodes,
   onPatch,
+  onCable,
 }: {
   row: string[];
   index: number;
   nodes: EquipmentNode[];
   onPatch: (edgeId: string, field: PatchField, value: string) => void;
+  onCable?: (edgeId: string, spec: { cableType: string; length: string; throwdown: string }) => void;
 }) {
-  const edgeId = row[0] ?? "";
-  const source = nodes.find((node) => node.data.unitId === row[1]);
-  const target = nodes.find((node) => node.data.unitId === row[6]);
-  const field =
-    index === 1 ? "sourceUnit" : index === 4 ? "from" : index === 5 ? "to" : index === 6 ? "destUnit" : index === 8 ? "length" : index === 9 ? "notes" : null;
-  if (!field) return <>{row[index]}</>;
-  if (field === "length" || field === "notes") {
-    return (
-      <input
-        className="w-full min-w-24 rounded-lg border border-line bg-paper px-2 py-1 text-ink outline-none"
-        value={row[index]}
-        onChange={(event) => onPatch(edgeId, field, event.target.value)}
-      />
-    );
-  }
-  if (field === "sourceUnit" || field === "destUnit") {
+  const edgeId = row[9] ?? "";
+  const source = nodes.find((node) => node.data.unitId === row[0]);
+  const target = nodes.find((node) => node.data.unitId === row[4]);
+  if (index === 0 || index === 4) {
+    const field = index === 0 ? "sourceUnit" : "destUnit";
+    const current = index === 0 ? source : target;
     return (
       <select
         className="w-full min-w-28 rounded-lg border border-line bg-paper px-2 py-1 text-ink"
-        value={(field === "sourceUnit" ? source : target)?.id ?? ""}
+        value={current?.id ?? ""}
         onChange={(event) => onPatch(edgeId, field, event.target.value)}
       >
         {nodes.map((node) => (
@@ -1808,20 +1842,87 @@ function PatchCell({
       </select>
     );
   }
-  const box = field === "from" ? source : target;
-  const pins = box?.data.pins.filter((pin) => pin.direction === (field === "from" ? "output" : "input")) ?? [];
+  if (index === 3 || index === 7) {
+    const field = index === 3 ? "from" : "to";
+    const box = index === 3 ? source : target;
+    const pins = box?.data.pins.filter((pin) => pin.direction === (field === "from" ? "output" : "input")) ?? [];
+    return (
+      <select
+        className="w-full min-w-28 rounded-lg border border-line bg-paper px-2 py-1 text-ink"
+        value={row[index]}
+        onChange={(event) => onPatch(edgeId, field, event.target.value)}
+      >
+        {pins.map((pin) => (
+          <option key={pin.id} value={pin.label}>
+            {pin.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (index === 8) return <CableAssign row={row} onCable={onCable} />;
+  return <>{row[index]}</>;
+}
+
+function CableAssign({
+  row,
+  onCable,
+}: {
+  row: string[];
+  onCable?: (edgeId: string, spec: { cableType: string; length: string; throwdown: string }) => void;
+}) {
+  const edgeId = row[9] ?? "";
+  const parts = (row[8] ?? "").split(" · ").map((part) => part.trim()).filter(Boolean);
+  const length = parts.find((part) => (CABLE_LENGTHS as readonly string[]).includes(part)) ?? "";
+  const throwdown = parts.find((part) => (THROWDOWNS as readonly string[]).includes(part)) ?? "";
+  const cableType = parts.filter((part) => part !== length && part !== throwdown).join(" · ");
+  const signal = row[2] || "";
+  function set(next: { cableType: string; length: string; throwdown: string }) {
+    onCable?.(edgeId, next.cableType ? next : { cableType: "", length: "", throwdown: "" });
+  }
   return (
-    <select
-      className="w-full min-w-28 rounded-lg border border-line bg-paper px-2 py-1 text-ink"
-      value={row[index]}
-      onChange={(event) => onPatch(edgeId, field, event.target.value)}
-    >
-      {pins.map((pin) => (
-        <option key={pin.id} value={pin.label}>
-          {pin.label}
-        </option>
-      ))}
-    </select>
+    <div className="flex min-w-36 flex-col gap-1">
+      <select
+        aria-label="Cable type"
+        className="w-full rounded-lg border border-line bg-paper px-2 py-1 text-ink"
+        value={cableType}
+        onChange={(event) => set({ cableType: event.target.value, length, throwdown: event.target.value === "Fiber" ? throwdown : "" })}
+      >
+        <option value="">No cable</option>
+        {signal ? <option value={signal}>{signal}</option> : null}
+        {signal !== "Fiber" ? <option value="Fiber">Fiber</option> : null}
+      </select>
+      {cableType ? (
+        <select
+          aria-label="Cable length"
+          className="w-full rounded-lg border border-line bg-paper px-2 py-1 text-ink"
+          value={length}
+          onChange={(event) => set({ cableType, length: event.target.value, throwdown })}
+        >
+          <option value="">Length</option>
+          {CABLE_LENGTHS.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {cableType === "Fiber" ? (
+        <select
+          aria-label="Throw-down"
+          className="w-full rounded-lg border border-line bg-paper px-2 py-1 text-ink"
+          value={throwdown}
+          onChange={(event) => set({ cableType, length, throwdown: event.target.value })}
+        >
+          <option value="">No throw-down</option>
+          {THROWDOWNS.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      ) : null}
+    </div>
   );
 }
 
@@ -1936,14 +2037,57 @@ function EdgeMenu({
         </button>
       </div>
       <label className="mt-2 block text-sm">
-        Length
-        <input
+        Cable
+        <select
           className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-          value={edge.data?.length ?? ""}
-          placeholder="25 ft"
-          onChange={(event) => onChange({ length: event.target.value })}
-        />
+          value={edge.data?.cableType ?? ""}
+          onChange={(event) =>
+            onChange({
+              cableType: event.target.value,
+              throwdown: event.target.value === "Fiber" ? (edge.data?.throwdown ?? "") : "",
+              length: event.target.value ? (edge.data?.length ?? "") : "",
+            })
+          }
+        >
+          <option value="">No cable</option>
+          {edge.data?.signal ? <option value={edge.data.signal}>{edge.data.signal}</option> : null}
+          {edge.data?.signal !== "Fiber" ? <option value="Fiber">Fiber</option> : null}
+        </select>
       </label>
+      {edge.data?.cableType ? (
+        <label className="mt-2 block text-sm">
+          Length
+          <select
+            className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
+            value={edge.data?.length ?? ""}
+            onChange={(event) => onChange({ length: event.target.value })}
+          >
+            <option value="">Length</option>
+            {CABLE_LENGTHS.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {edge.data?.cableType === "Fiber" ? (
+        <label className="mt-2 block text-sm">
+          Throw-down
+          <select
+            className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
+            value={edge.data?.throwdown ?? ""}
+            onChange={(event) => onChange({ throwdown: event.target.value })}
+          >
+            <option value="">No throw-down</option>
+            {THROWDOWNS.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label className="mt-2 block text-sm">
         Notes
         <input

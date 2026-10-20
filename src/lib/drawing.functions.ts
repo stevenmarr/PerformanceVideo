@@ -119,6 +119,8 @@ type SystemGraph = {
     targetHandle: string;
     length: string;
     notes: string;
+    cableType?: string;
+    throwdown?: string;
   }[];
   ports: { id: string; nodeId: string; pinId: string }[];
 };
@@ -160,6 +162,8 @@ export const saveSystem = createServerFn({ method: "POST" })
         targetHandle: clean(edge.targetHandle, 64),
         length: clean(edge.length, 32),
         notes: clean(edge.notes, 240),
+        cableType: clean(edge.cableType, 32),
+        throwdown: clean(edge.throwdown, 32),
       })),
       ports: pins.map((pin, index) => ({
         id: pin.id,
@@ -228,6 +232,8 @@ export const updateSystemGraph = createServerFn({ method: "POST" })
         targetHandle: clean(edge.targetHandle, 64),
         length: clean(edge.length, 32),
         notes: clean(edge.notes, 240),
+        cableType: clean(edge.cableType, 32),
+        throwdown: clean(edge.throwdown, 32),
       })),
       ports: (data.graph.ports ?? []).map((port) => ({
         id: clean(port.id, 64),

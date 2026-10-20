@@ -113,12 +113,14 @@ async function ensureLibrary(userId: string) {
     `;
   }
   for (const [value, order, custom] of [
-    ["10 ft", 10, false],
-    ["25 ft", 20, false],
-    ["50 ft", 30, false],
-    ["100 ft", 40, false],
-    ["Patch", 50, false],
-    ["Custom", 999, true],
+    ["patch < 10'", 10, false],
+    ["10'", 20, false],
+    ["25'", 30, false],
+    ["50'", 40, false],
+    ["100'", 50, false],
+    ["200'", 60, false],
+    ["100M", 70, false],
+    ["1000'", 80, false],
   ] as [string, number, boolean][]) {
     await sql`
       insert into cable_lengths (user_id, length_value, display_order, is_custom)

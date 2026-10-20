@@ -26,6 +26,8 @@ export type DrawingEdge = {
   targetHandle: string;
   length: string;
   notes: string;
+  cableType?: string;
+  throwdown?: string;
 };
 
 export type DrawingGroup = {
