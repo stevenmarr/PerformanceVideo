@@ -245,6 +245,7 @@ export function buildJpm(gear: GearRow[]): DrawingFile {
       { id: "g-led", name: "LED", nodeIds: ["ledAC", "ledHL", "ledHR"] },
       { id: "g-rec", name: "Records", nodeIds: ["recY2", "recY3", "recY4", "recZ2", "recZ3", "recZ4"] },
     ],
+    cableStyle: "curve",
   };
 }
 

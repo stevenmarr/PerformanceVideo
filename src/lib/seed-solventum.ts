@@ -205,6 +205,7 @@ export function buildSolventum(gear: GearRow[]): DrawingFile {
       { id: "g-chain-1", name: "Camera chain 1", nodeIds: ["ccu1", "dsm-a"] },
       { id: "g-left-blend", name: "Left blend", nodeIds: ["pj-bl1", "pj-bl2"] },
     ],
+    cableStyle: "curve",
   };
 }
 

@@ -46,6 +46,7 @@ export type EquipmentRow = {
   manufacturerId: number;
   manufacturer: string;
   pins: Pin[];
+  graphJson: string;
 };
 export type StudioRow = {
   companyName: string;
@@ -259,11 +260,12 @@ async function readCatalog(userId: string): Promise<Catalog> {
     manufacturer_id: number;
     manufacturer: string;
     pins_json: string;
+    graph_json: string;
   }>`
     select e.id, e.model, e.kind, e.notes, e.product_website,
            e.device_type_id, d.name as device_type,
            e.manufacturer_id, m.name as manufacturer,
-           e.pins_json
+           e.pins_json, e.graph_json
     from equipment e
     join device_types d on d.id = e.device_type_id and d.user_id = e.user_id
     join manufacturers m on m.id = e.manufacturer_id and m.user_id = e.user_id
@@ -309,6 +311,7 @@ async function readCatalog(userId: string): Promise<Catalog> {
       manufacturerId: row.manufacturer_id,
       manufacturer: row.manufacturer,
       pins: parsePins(row.pins_json),
+      graphJson: row.graph_json ?? "",
     })),
     studio: studio
       ? {

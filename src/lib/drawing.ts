@@ -34,11 +34,14 @@ export type DrawingGroup = {
   nodeIds: string[];
 };
 
+export type CableStyle = "curve" | "square";
+
 export type DrawingFile = {
   title: DrawingTitle;
   nodes: DrawingNode[];
   edges: DrawingEdge[];
   groups: DrawingGroup[];
+  cableStyle: CableStyle;
 };
 
 export const EMPTY_TITLE: DrawingTitle = {
@@ -50,7 +53,7 @@ export const EMPTY_TITLE: DrawingTitle = {
 };
 
 export function emptyDrawing(): DrawingFile {
-  return { title: { ...EMPTY_TITLE }, nodes: [], edges: [], groups: [] };
+  return { title: { ...EMPTY_TITLE }, nodes: [], edges: [], groups: [], cableStyle: "curve" };
 }
 
 export function asDrawingFile(raw: unknown): DrawingFile {
@@ -67,5 +70,6 @@ export function asDrawingFile(raw: unknown): DrawingFile {
     nodes: Array.isArray(file.nodes) ? file.nodes : [],
     edges: Array.isArray(file.edges) ? file.edges : [],
     groups: Array.isArray(file.groups) ? file.groups : [],
+    cableStyle: file.cableStyle === "square" ? "square" : "curve",
   };
 }

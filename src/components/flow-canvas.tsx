@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import {
   Background,
+  ConnectionLineType,
   Controls,
   MiniMap,
   ReactFlow,
@@ -22,9 +23,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { Catalog, EquipmentRow, Pin } from "@/lib/catalog.functions";
-import { saveSystem } from "@/lib/drawing.functions";
-import type { DrawingFile, DrawingGroup, DrawingTitle } from "@/lib/drawing";
+import { saveSystem, updateSystemGraph } from "@/lib/drawing.functions";
+import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle } from "@/lib/drawing";
 import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
+import { applyPatchCsv, reassignCable, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
 
 type EquipmentNodeData = {
   equipmentId: number;
@@ -158,6 +160,10 @@ function signalMap(catalog: Catalog) {
   return map;
 }
 
+function edgeType(style: CableStyle) {
+  return style === "square" ? "step" : "default";
+}
+
 function hydrate(file: DrawingFile, catalog: Catalog) {
   const colors = signalMap(catalog);
   const gear = new Map(catalog.equipment.map((item) => [item.id, item]));
@@ -195,6 +201,7 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
     const signal = pinOf(nodes, edge.source, edge.sourceHandle)?.signal ?? "";
     edges.push({
       id: edge.id,
+      type: edgeType(file.cableStyle),
       source: edge.source,
       target: edge.target,
       sourceHandle: edge.sourceHandle,
@@ -212,9 +219,16 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
   return { nodes, edges, groups, missing };
 }
 
-function toFile(nodes: EquipmentNode[], edges: CableEdge[], groups: ShowGroup[], title: DrawingTitle): DrawingFile {
+function toFile(
+  nodes: EquipmentNode[],
+  edges: CableEdge[],
+  groups: ShowGroup[],
+  title: DrawingTitle,
+  cableStyle: CableStyle,
+): DrawingFile {
   return {
     title,
+    cableStyle,
     nodes: nodes.map((node) => ({
       id: node.id,
       equipmentId: node.data.equipmentId,
@@ -291,7 +305,11 @@ export function FlowCanvas({
   const [drawingId, setDrawingId] = useState(drawing.id);
   const [name, setName] = useState(drawing.name);
   const [title, setTitle] = useState<DrawingTitle>(drawing.graph.title);
+  const [cableStyle, setCableStyle] = useState<CableStyle>(drawing.graph.cableStyle);
   const [sheet, setSheet] = useState<"draw" | "patch" | "pull">("draw");
+  const [patchFocus, setPatchFocus] = useState<{ label: string; nodeIds: string[] } | null>(null);
+  const [patchPop, setPatchPop] = useState<{ x: number; y: number; label: string; nodeIds: string[]; canRemove: boolean } | null>(null);
+  const [inside, setInside] = useState<{ equipmentId: number; label: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const signalColors = useMemo(() => signalMap(catalog), [catalog]);
@@ -344,6 +362,13 @@ export function FlowCanvas({
   const [systemPorts, setSystemPorts] = useState<PortChoice[]>([]);
   const [systemError, setSystemError] = useState("");
   const [systemBusy, setSystemBusy] = useState(false);
+  const showSnap = useRef<{
+    nodes: EquipmentNode[];
+    edges: CableEdge[];
+    groups: ShowGroup[];
+    title: DrawingTitle;
+    cableStyle: CableStyle;
+  } | null>(null);
   const flowRef = useRef<ReactFlowInstance<EquipmentNode, CableEdge> | null>(null);
   const nodesRef = useRef(nodes);
   const marqueeRef = useRef<MarqueeGesture | null>(null);
@@ -404,6 +429,7 @@ export function FlowCanvas({
           {
             ...connection,
             data: { length: "", notes: "", signal: sourcePin?.signal ?? "" },
+            type: edgeType(cableStyle),
             style: { stroke: color, strokeWidth: 2 },
           },
           current,
@@ -418,7 +444,7 @@ export function FlowCanvas({
             : "Cable added.",
       );
     },
-    [edges, nodes, setEdges, signalColors],
+    [cableStyle, edges, nodes, setEdges, signalColors],
   );
 
   const selectedNodes = nodes.filter((node) => node.selected);
@@ -736,8 +762,47 @@ export function FlowCanvas({
   }
 
   async function save() {
+    if (inside) {
+      const row = catalog.equipment.find((item) => item.id === inside.equipmentId);
+      const previous = parseSystemGraph(row?.graphJson);
+      const kept = new Set(nodes.map((node) => `${node.id}`));
+      setHint("Saving the system…");
+      const result = await updateSystemGraph({
+        data: {
+          equipmentId: inside.equipmentId,
+          graph: {
+            nodes: nodes.map((node) => ({
+              id: node.id,
+              equipmentId: node.data.equipmentId,
+              unitId: node.data.unitId,
+              ip: node.data.ip,
+              specialNotes: node.data.specialNotes,
+              x: node.position.x,
+              y: node.position.y,
+            })),
+            edges: edges.map((edge) => ({
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              sourceHandle: edge.sourceHandle ?? "",
+              targetHandle: edge.targetHandle ?? "",
+              length: edge.data?.length ?? "",
+              notes: edge.data?.notes ?? "",
+            })),
+            ports: (previous?.ports ?? []).filter((port) => kept.has(port.nodeId)),
+          },
+        },
+      });
+      if (result.error) {
+        setHint(result.error);
+        return;
+      }
+      await onLibraryChange();
+      setHint(`${inside.label} saved. Back returns to the show.`);
+      return;
+    }
     setHint("Saving…");
-    const result = await onSave({ id: drawingId, name, graph: toFile(nodes, edges, showGroups, title) });
+    const result = await onSave({ id: drawingId, name, graph: toFile(nodes, edges, showGroups, title, cableStyle) });
     if (result.error || result.id == null) {
       setHint(result.error || "The drawing could not be saved.");
       return;
@@ -767,6 +832,148 @@ export function FlowCanvas({
     );
   }
 
+  function boxesOf(list: EquipmentNode[]): PatchBox[] {
+    return list.map((node) => ({ id: node.id, unitId: node.data.unitId, pins: node.data.pins }));
+  }
+
+  function cablesOf(list: CableEdge[]): PatchCable[] {
+    return list.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle ?? "",
+      targetHandle: edge.targetHandle ?? "",
+      length: edge.data?.length ?? "",
+      notes: edge.data?.notes ?? "",
+    }));
+  }
+
+  function paintCables(list: CableEdge[], cables: PatchCable[], signal: string, edgeId: string) {
+    const color = signalColors[signal] ?? "#e7e5e4";
+    return list.map((edge) => {
+      const cable = cables.find((item) => item.id === edge.id);
+      if (!cable) return edge;
+      const changed = edge.id === edgeId;
+      return {
+        ...edge,
+        source: cable.source,
+        target: cable.target,
+        sourceHandle: cable.sourceHandle,
+        targetHandle: cable.targetHandle,
+        type: edgeType(cableStyle),
+        data: {
+          length: cable.length,
+          notes: cable.notes,
+          signal: changed ? signal : (edge.data?.signal ?? ""),
+        },
+        label: cable.length || undefined,
+        labelStyle: { fill: "#f3efe6", fontSize: 11 },
+        labelBgStyle: { fill: "#1c1a17" },
+        style: changed ? { stroke: color, strokeWidth: edge.style?.strokeWidth ?? 2 } : edge.style,
+      };
+    });
+  }
+
+  function applyCableChange(edgeId: string, field: PatchField, value: string) {
+    const result = reassignCable(boxesOf(nodes), cablesOf(edges), edgeId, field, value, "id");
+    if (result.error) {
+      setHint(result.error);
+      return;
+    }
+    setEdges(paintCables(edges, result.cables, result.signal, edgeId));
+  }
+
+  function applyCableFile(text: string) {
+    const result = applyPatchCsv(boxesOf(nodes), cablesOf(edges), text);
+    if (result.errors.length) setHint(result.errors[0]);
+    else setHint(`${result.applied} cable${result.applied === 1 ? "" : "s"} updated from the CSV.`);
+    if (!result.applied) return;
+    setEdges((current) => {
+      const byId = new Map(result.cables.map((cable) => [cable.id, cable]));
+      return current.map((edge) => {
+        const cable = byId.get(edge.id);
+        if (!cable) return edge;
+        const signal = pinOf(nodes, cable.source, cable.sourceHandle)?.signal ?? edge.data?.signal ?? "";
+        return paintCables([edge], [cable], signal, edge.id)[0];
+      });
+    });
+  }
+
+  function useSquare(next: CableStyle) {
+    setCableStyle(next);
+    setEdges((current) => current.map((edge) => ({ ...edge, type: edgeType(next) })));
+    setHint(next === "square" ? "Cables turn at 90 degrees." : "Cables are curved.");
+  }
+
+  function showPatch(label: string, nodeIds: string[], x: number, y: number, canRemove = false) {
+    setPatchPop({ label, nodeIds, x, y, canRemove });
+    setMenu(null);
+  }
+
+  function openPatchPage(label: string, nodeIds: string[]) {
+    setPatchFocus({ label, nodeIds });
+    setSheet("patch");
+    setPatchPop(null);
+    setMenu(null);
+  }
+
+  function openInside(node: EquipmentNode) {
+    if (inside || node.data.kind !== "system") return;
+    const row = catalog.equipment.find((item) => item.id === node.data.equipmentId);
+    const graph = parseSystemGraph(row?.graphJson);
+    if (!graph?.nodes.length) {
+      setHint("This system has no saved drawing.");
+      return;
+    }
+    showSnap.current = { nodes, edges, groups: showGroups, title, cableStyle };
+    const file: DrawingFile = {
+      title,
+      cableStyle,
+      groups: [],
+      nodes: graph.nodes.map((item) => ({
+        id: item.id,
+        equipmentId: item.equipmentId,
+        unitId: item.unitId,
+        ip: item.ip,
+        specialNotes: item.specialNotes,
+        x: item.x,
+        y: item.y,
+      })),
+      edges: graph.edges.map((item) => ({
+        id: item.id,
+        source: item.source,
+        target: item.target,
+        sourceHandle: item.sourceHandle,
+        targetHandle: item.targetHandle,
+        length: item.length,
+        notes: item.notes,
+      })),
+    };
+    const next = hydrate(file, catalog);
+    setNodes(next.nodes);
+    setEdges(next.edges);
+    setShowGroups([]);
+    setInside({ equipmentId: node.data.equipmentId, label: `${node.data.unitId || node.data.model}` });
+    setSheet("draw");
+    setPatchFocus(null);
+    setHint(`${node.data.model} is open. Save writes the system. Back returns to the show.`);
+    requestAnimationFrame(() => flowRef.current?.fitView());
+  }
+
+  function backToShow() {
+    const snap = showSnap.current;
+    if (!snap) return;
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setShowGroups(snap.groups);
+    setTitle(snap.title);
+    setCableStyle(snap.cableStyle);
+    setInside(null);
+    showSnap.current = null;
+    setHint("Back on the show.");
+    requestAnimationFrame(() => flowRef.current?.fitView());
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -792,9 +999,12 @@ export function FlowCanvas({
   }, [applySelection]);
 
   const active = selectedNodes.length === 1 ? selectedNodes[0] : null;
-  const patch = patchRows(nodes, edges);
+  const focusIds = patchFocus ? new Set(patchFocus.nodeIds) : null;
+  const patchEdges = focusIds ? edges.filter((edge) => focusIds.has(edge.source) || focusIds.has(edge.target)) : edges;
+  const patch = patchRows(nodes, patchEdges);
   const pull = pullRows(nodes);
   const fileSlug = slugName(name);
+  const patchSlug = patchFocus ? `${fileSlug}-${slugName(patchFocus.label)}-patch.csv` : `${fileSlug}-patch.csv`;
   const titleLine = [title.event, title.location, title.date, title.drawnBy, title.version ? `v${title.version}` : ""]
     .filter(Boolean)
     .join(" · ");
@@ -842,6 +1052,13 @@ export function FlowCanvas({
             </button>
             <button
               type="button"
+              className={`rounded-full px-4 py-2 text-sm font-semibold ${cableStyle === "square" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
+              onClick={() => useSquare(cableStyle === "square" ? "curve" : "square")}
+            >
+              90° cables
+            </button>
+            <button
+              type="button"
               className={`rounded-full px-4 py-2 text-sm font-semibold ${sheet === "patch" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
               onClick={() => setSheet((current) => (current === "patch" ? "draw" : "patch"))}
             >
@@ -874,6 +1091,14 @@ export function FlowCanvas({
           </div>
         </div>
         <div className="relative min-h-0 flex-1">
+        {inside ? (
+          <div className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-sm">
+            <span>Inside {inside.label}</span>
+            <button type="button" className="font-semibold" onClick={backToShow}>
+              Back to show
+            </button>
+          </div>
+        ) : null}
         {pendingGroup ? (
           <form
             onSubmit={commitGroup}
@@ -1003,6 +1228,8 @@ export function FlowCanvas({
             onConnect={onConnect}
             isValidConnection={isValidConnection}
             nodeTypes={nodeTypes}
+            connectionLineType={cableStyle === "square" ? ConnectionLineType.Step : ConnectionLineType.Bezier}
+            onNodeDoubleClick={(_, node) => openInside(node)}
             onInit={(instance) => {
               flowRef.current = instance;
             }}
@@ -1032,13 +1259,12 @@ export function FlowCanvas({
             onNodeContextMenu={(event, node) => {
               event.preventDefault();
               if (event.ctrlKey && !event.metaKey && !isMacPlatform()) return;
-              setNodes((current) => {
-                const already = current.some((item) => item.id === node.id && item.selected);
-                const multi = current.filter((item) => item.selected).length > 1;
-                if (already && multi) return current;
-                return current.map((item) => ({ ...item, selected: item.id === node.id }));
-              });
-              setMenu({ kind: "node", x: event.clientX, y: event.clientY, nodeId: node.id });
+              const selected = nodes.filter((item) => item.selected);
+              const keep = selected.length > 1 && selected.some((item) => item.id === node.id);
+              const ids = keep ? selected.map((item) => item.id) : [node.id];
+              if (!keep) setNodes((current) => current.map((item) => ({ ...item, selected: item.id === node.id })));
+              const gear = node.data.unitId || node.data.model || "Gear";
+              showPatch(keep ? `${ids.length} boxes` : gear, ids, event.clientX, event.clientY, true);
             }}
             onEdgeContextMenu={(event, edge) => {
               event.preventDefault();
@@ -1086,6 +1312,13 @@ export function FlowCanvas({
                       <button
                         type="button"
                         className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
+                        onClick={(event) => showPatch(group.name, group.nodeIds, event.clientX, event.clientY)}
+                      >
+                        Patch list
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
                         onClick={() => openSystem(group)}
                       >
                         Save as system
@@ -1116,8 +1349,36 @@ export function FlowCanvas({
             title={title}
             onTitle={(next) => setTitle(next)}
             rows={sheet === "patch" ? patch : pull}
-            filename={sheet === "patch" ? `${fileSlug}-patch.csv` : `${fileSlug}-pull.csv`}
+            filename={sheet === "patch" ? patchSlug : `${fileSlug}-pull.csv`}
+            focusLabel={sheet === "patch" ? patchFocus?.label : undefined}
+            onClearFocus={() => setPatchFocus(null)}
+            nodes={nodes}
+            onPatch={applyCableChange}
+            onApplyCsv={applyCableFile}
             onClose={() => setSheet("draw")}
+          />
+        ) : null}
+        {patchPop ? (
+          <PatchPop
+            pop={patchPop}
+            rows={patchRows(
+              nodes,
+              edges.filter((edge) => patchPop.nodeIds.includes(edge.source) || patchPop.nodeIds.includes(edge.target)),
+            )}
+            filename={`${fileSlug}-${slugName(patchPop.label)}-patch.csv`}
+            onOpen={() => openPatchPage(patchPop.label, patchPop.nodeIds)}
+            onEdit={
+              patchPop.nodeIds.length === 1
+                ? () => {
+                    const id = patchPop.nodeIds[0];
+                    setNodes((current) => current.map((item) => ({ ...item, selected: item.id === id })));
+                    setSheet("draw");
+                    setPatchPop(null);
+                  }
+                : undefined
+            }
+            onRemove={patchPop.canRemove ? () => removeIds(patchPop.nodeIds, []) : undefined}
+            onClose={() => setPatchPop(null)}
           />
         ) : null}
         {menu?.kind === "pane" ? (
@@ -1140,6 +1401,13 @@ export function FlowCanvas({
                 </button>
                 <button
                   type="button"
+                  className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-paper"
+                  onClick={() => showPatch(`${selectedNodes.length} boxes`, selectedNodes.map((node) => node.id), menu.x, menu.y)}
+                >
+                  Patch list for this selection
+                </button>
+                <button
+                  type="button"
                   className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-paper"
                   onClick={() => removeIds(selectedNodes.map((node) => node.id), [])}
                 >
@@ -1158,6 +1426,16 @@ export function FlowCanvas({
                   }}
                 >
                   Edit unit ID, IP, notes
+                </button>
+                <button
+                  type="button"
+                  className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-paper"
+                  onClick={() => {
+                    const node = nodes.find((item) => item.id === menu.nodeId);
+                    showPatch(node?.data.unitId || node?.data.model || "Gear", [menu.nodeId], menu.x, menu.y);
+                  }}
+                >
+                  Patch list
                 </button>
                 <button
                   type="button"
@@ -1214,6 +1492,7 @@ export function FlowCanvas({
 
 function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
   const header = [
+    "Cable ID",
     "Source unit ID",
     "Source model",
     "Signal",
@@ -1230,6 +1509,7 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
     const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
     const to = target?.data.pins.find((pin) => pin.id === edge.targetHandle);
     return [
+      edge.id,
       source?.data.unitId ?? "",
       source ? `${source.data.manufacturer} ${source.data.model}` : "",
       from?.signal ?? edge.data?.signal ?? "",
@@ -1242,6 +1522,97 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
     ];
   });
   return [header, ...body];
+}
+
+function parseSystemGraph(raw: string | undefined) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      nodes?: { id: string; equipmentId: number; unitId: string; ip: string; specialNotes: string; x: number; y: number }[];
+      edges?: { id: string; source: string; target: string; sourceHandle: string; targetHandle: string; length: string; notes: string }[];
+      ports?: { id: string; nodeId: string; pinId: string }[];
+    };
+    if (!parsed || !Array.isArray(parsed.nodes)) return null;
+    return {
+      nodes: parsed.nodes,
+      edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+      ports: Array.isArray(parsed.ports) ? parsed.ports : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function PatchPop({
+  pop,
+  rows,
+  filename,
+  onOpen,
+  onEdit,
+  onRemove,
+  onClose,
+}: {
+  pop: { x: number; y: number; label: string };
+  rows: string[][];
+  filename: string;
+  onOpen: () => void;
+  onEdit?: () => void;
+  onRemove?: () => void;
+  onClose: () => void;
+}) {
+  const point = menuPoint(pop.x, pop.y, 420, 360);
+  const body = rows.slice(1);
+  return (
+    <div
+      className="fixed z-40 w-[28rem] max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-panel p-3 shadow-lg"
+      style={point}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <button type="button" className="w-full text-left" onClick={onOpen}>
+        <p className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">Patch list</p>
+        <p className="text-sm font-semibold">{pop.label}</p>
+        <p className="text-xs text-muted">{body.length} cable{body.length === 1 ? "" : "s"}. Click to open this page under Patch.</p>
+      </button>
+      <div className="mt-2 max-h-52 overflow-auto rounded-lg border border-line">
+        {body.length === 0 ? (
+          <p className="px-3 py-2 text-sm text-muted">No cables on this gear.</p>
+        ) : (
+          <table className="w-full text-left text-xs">
+            <tbody>
+              {body.slice(0, 12).map((row) => (
+                <tr key={row[0]} className="border-t border-line first:border-t-0">
+                  <td className="px-2 py-1">{row[1]} {row[4]}</td>
+                  <td className="px-2 py-1 text-muted">→</td>
+                  <td className="px-2 py-1">{row[6]} {row[5]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button type="button" className="rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-paper" onClick={onOpen}>
+          Open patch page
+        </button>
+        <button type="button" className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold" onClick={() => downloadCsv(filename, rows)}>
+          Download CSV
+        </button>
+        {onEdit ? (
+          <button type="button" className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold" onClick={onEdit}>
+            Edit box
+          </button>
+        ) : null}
+        {onRemove ? (
+          <button type="button" className="text-xs text-danger" onClick={onRemove}>
+            Remove
+          </button>
+        ) : null}
+        <button type="button" className="text-xs text-muted" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function pullRows(nodes: EquipmentNode[]): string[][] {
@@ -1263,6 +1634,11 @@ function ListSheet({
   rows,
   filename,
   onClose,
+  focusLabel,
+  onClearFocus,
+  nodes,
+  onPatch,
+  onApplyCsv,
 }: {
   kind: "patch" | "pull";
   title: DrawingTitle;
@@ -1270,6 +1646,11 @@ function ListSheet({
   rows: string[][];
   filename: string;
   onClose: () => void;
+  focusLabel?: string;
+  onClearFocus?: () => void;
+  nodes?: EquipmentNode[];
+  onPatch?: (edgeId: string, field: PatchField, value: string) => void;
+  onApplyCsv?: (text: string) => void;
 }) {
   const header = rows[0] ?? [];
   const source = rows.slice(1);
@@ -1286,14 +1667,35 @@ function ListSheet({
     <div className="absolute inset-0 z-20 overflow-auto bg-paper/95 p-4">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">{kind === "patch" ? "Patch" : "Pull list"}</h2>
+          <h2 className="text-lg font-semibold">{kind === "patch" ? (focusLabel ? `Patch · ${focusLabel}` : "Patch") : "Pull list"}</h2>
           <p className="mt-1 max-w-xl text-sm text-muted">
             {kind === "patch"
-              ? "Each cable names the unit ID on both ends. Length is whatever you typed on the cable. Click a column to sort."
+              ? "Change a unit ID or a connection and the cable moves on the drawing. Cable ID is how an uploaded CSV finds the same row. Download this sheet for one department."
               : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it. Click a column to sort."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {kind === "patch" && onApplyCsv ? (
+            <label className="cursor-pointer rounded-full border border-line px-4 py-2 text-sm">
+              Apply CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  void file.text().then((text) => onApplyCsv(text));
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+          {focusLabel && onClearFocus ? (
+            <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={onClearFocus}>
+              Whole drawing
+            </button>
+          ) : null}
           <button
             type="button"
             className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
@@ -1348,7 +1750,11 @@ function ListSheet({
                 <tr key={index} className="border-t border-line">
                   {row.map((cell, cellIndex) => (
                     <td key={cellIndex} className="px-3 py-2 align-top">
-                      {cell}
+                      {kind === "patch" && onPatch && nodes ? (
+                        <PatchCell row={row} index={cellIndex} nodes={nodes} onPatch={onPatch} />
+                      ) : (
+                        cell
+                      )}
                     </td>
                   ))}
                 </tr>
@@ -1358,6 +1764,64 @@ function ListSheet({
         </div>
       )}
     </div>
+  );
+}
+
+function PatchCell({
+  row,
+  index,
+  nodes,
+  onPatch,
+}: {
+  row: string[];
+  index: number;
+  nodes: EquipmentNode[];
+  onPatch: (edgeId: string, field: PatchField, value: string) => void;
+}) {
+  const edgeId = row[0] ?? "";
+  const source = nodes.find((node) => node.data.unitId === row[1]);
+  const target = nodes.find((node) => node.data.unitId === row[6]);
+  const field =
+    index === 1 ? "sourceUnit" : index === 4 ? "from" : index === 5 ? "to" : index === 6 ? "destUnit" : index === 8 ? "length" : index === 9 ? "notes" : null;
+  if (!field) return <>{row[index]}</>;
+  if (field === "length" || field === "notes") {
+    return (
+      <input
+        className="w-full min-w-24 rounded-lg border border-line bg-paper px-2 py-1 text-ink outline-none"
+        value={row[index]}
+        onChange={(event) => onPatch(edgeId, field, event.target.value)}
+      />
+    );
+  }
+  if (field === "sourceUnit" || field === "destUnit") {
+    return (
+      <select
+        className="w-full min-w-28 rounded-lg border border-line bg-paper px-2 py-1 text-ink"
+        value={(field === "sourceUnit" ? source : target)?.id ?? ""}
+        onChange={(event) => onPatch(edgeId, field, event.target.value)}
+      >
+        {nodes.map((node) => (
+          <option key={node.id} value={node.id}>
+            {node.data.unitId || node.data.model}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  const box = field === "from" ? source : target;
+  const pins = box?.data.pins.filter((pin) => pin.direction === (field === "from" ? "output" : "input")) ?? [];
+  return (
+    <select
+      className="w-full min-w-28 rounded-lg border border-line bg-paper px-2 py-1 text-ink"
+      value={row[index]}
+      onChange={(event) => onPatch(edgeId, field, event.target.value)}
+    >
+      {pins.map((pin) => (
+        <option key={pin.id} value={pin.label}>
+          {pin.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

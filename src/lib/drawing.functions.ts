@@ -203,3 +203,45 @@ export const saveSystem = createServerFn({ method: "POST" })
     `;
     return { error: null };
   });
+
+export const updateSystemGraph = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { equipmentId: number; graph: SystemGraph }) => input)
+  .handler(async ({ context, data }) => {
+    const equipmentId = Number(data.equipmentId);
+    if (!equipmentId || !data.graph?.nodes?.length) return { error: "This system has no boxes to save." };
+    const graph: SystemGraph = {
+      nodes: data.graph.nodes.map((node) => ({
+        id: clean(node.id, 64),
+        equipmentId: Number(node.equipmentId),
+        unitId: clean(node.unitId, 64),
+        ip: clean(node.ip, 64),
+        specialNotes: clean(node.specialNotes, 240),
+        x: Number(node.x) || 0,
+        y: Number(node.y) || 0,
+      })),
+      edges: (data.graph.edges ?? []).map((edge) => ({
+        id: clean(edge.id, 64),
+        source: clean(edge.source, 64),
+        target: clean(edge.target, 64),
+        sourceHandle: clean(edge.sourceHandle, 64),
+        targetHandle: clean(edge.targetHandle, 64),
+        length: clean(edge.length, 32),
+        notes: clean(edge.notes, 240),
+      })),
+      ports: (data.graph.ports ?? []).map((port) => ({
+        id: clean(port.id, 64),
+        nodeId: clean(port.nodeId, 64),
+        pinId: clean(port.pinId, 64),
+      })),
+    };
+    const sql = await getSql();
+    const updated = await sql<{ id: number }>`
+      update equipment
+      set graph_json = ${JSON.stringify(graph)}
+      where id = ${equipmentId} and user_id = ${context.userId} and kind = ${"system"}
+      returning id
+    `;
+    if (!updated.length) return { error: "That system is not in the library." };
+    return { error: null };
+  });
