@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { publicHref } from "@/lib/preview-path-prefix";
-import { authClient, authEnabled, GROK_PROVIDERS, signIn } from "@/lib/auth/client";
+import { authClient, authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 export const Route = createFileRoute("/login")({ component: Login });
@@ -59,18 +59,7 @@ function Login() {
         <p className="mt-2 text-sm text-muted">Your library stays with this account.</p>
         {isPending ? <div className="mt-8 h-10 animate-pulse rounded-full bg-line" /> : null}
         {authEnabled && !user ? (
-          <div className="mt-8 space-y-3">
-            {GROK_PROVIDERS.map((provider) => (
-              <button
-                key={provider.providerId}
-                type="button"
-                onClick={() => signIn(provider.providerId, { callbackURL: "/" })}
-                className="w-full rounded-full border border-line bg-panel px-4 py-3 text-sm font-semibold hover:bg-paper"
-              >
-                Continue with {provider.label}
-              </button>
-            ))}
-            <form onSubmit={onSubmit} className="space-y-3 border-t border-line pt-4">
+          <form onSubmit={onSubmit} className="mt-8 space-y-3">
               {mode === "up" ? (
                 <Field label="Name" value={name} onChange={setName} autoComplete="name" />
               ) : null}
@@ -98,7 +87,6 @@ function Login() {
                 {mode === "up" ? "Already have an account" : "Create an email account"}
               </button>
             </form>
-          </div>
         ) : null}
       </div>
     </main>

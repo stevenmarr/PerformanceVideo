@@ -11,6 +11,7 @@ import {
   CORPORATE_SIGNALS,
   CORPORATE_TYPES,
 } from "@/lib/corporate-nodes";
+import { seedJpmDrawing } from "@/lib/seed-jpm";
 import { seedSolventumDrawing } from "@/lib/seed-solventum";
 
 export type Pin = {
@@ -149,17 +150,18 @@ async function ensureLibrary(userId: string) {
     where user_id = ${userId} and color = '#111111'
   `;
 
-  const flag = await sql<{ corporate_pack: number; solventum: number }>`
-    select corporate_pack, solventum from library_flags where user_id = ${userId}
+  const flag = await sql<{ corporate_pack: number; solventum: number; jpm: number }>`
+    select corporate_pack, solventum, jpm from library_flags where user_id = ${userId}
   `;
   const pack = flag[0]?.corporate_pack ?? 0;
   const solventum = flag[0]?.solventum ?? 0;
-  if (pack < 3) {
+  const jpm = flag[0]?.jpm ?? 0;
+  if (pack < 4) {
     await seedCorporateGear(userId, pack);
     await sql`
       insert into library_flags (user_id, corporate_pack)
-      values (${userId}, ${3})
-      on conflict (user_id) do update set corporate_pack = 3
+      values (${userId}, ${4})
+      on conflict (user_id) do update set corporate_pack = 4
     `;
   }
   if (solventum < 1) {
@@ -168,6 +170,14 @@ async function ensureLibrary(userId: string) {
       insert into library_flags (user_id, solventum)
       values (${userId}, ${1})
       on conflict (user_id) do update set solventum = 1
+    `;
+  }
+  if (jpm < 1) {
+    await seedJpmDrawing(userId);
+    await sql`
+      insert into library_flags (user_id, jpm)
+      values (${userId}, ${1})
+      on conflict (user_id) do update set jpm = 1
     `;
   }
 }

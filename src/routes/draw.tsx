@@ -48,7 +48,7 @@ function DrawPage() {
         if (cancelled) return;
         setCatalog(library);
         setDrawings(list);
-        const preferred = list.find((item) => item.templateKey === "solventum") ?? list[0];
+        const preferred = list.find((item) => item.templateKey === "jpm") ?? list.find((item) => item.templateKey === "solventum") ?? list[0];
         if (!preferred) {
           setDrawing({ id: null, name: "Untitled show", graph: emptyDrawing() });
           return;
@@ -114,7 +114,7 @@ function DrawPage() {
             await deleteDrawing({ data: id });
             const list = await listDrawings();
             setDrawings(list);
-            const next = list.find((item) => item.templateKey === "solventum") ?? list[0];
+            const next = list.find((item) => item.templateKey === "jpm") ?? list.find((item) => item.templateKey === "solventum") ?? list[0];
             if (!next) {
               setDrawing({ id: null, name: "Untitled show", graph: emptyDrawing() });
               setSession((current) => current + 1);
