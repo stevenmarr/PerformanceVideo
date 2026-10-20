@@ -3,26 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Steven Marr · Performance Video</title>
+    <title>Performance Video · Steven Marr</title>
     <meta
       name="description"
-      content="Steven Marr, live-event technical director and project manager. Performance Video signal-flow software."
+      content="Steven Marr. Camera director, high-res switcher, and video engineer for corporate live events. 25+ years."
     />
     <link rel="icon" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;500;700&display=swap" rel="stylesheet" />
     <style>
       :root {
         color-scheme: dark;
-        --ink: #f3efe6;
-        --paper: #12110e;
-        --panel: #1c1a17;
-        --line: #34302a;
-        --muted: #a8a296;
+        --ink: #f4f1ea;
+        --paper: #0c0c0c;
+        --muted: #a39e94;
+        --line: #3a3a3a;
       }
       * { box-sizing: border-box; }
       body {
@@ -30,91 +26,107 @@
         min-height: 100vh;
         background: var(--paper);
         color: var(--ink);
-        font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
-        line-height: 1.5;
+        font-family: Montserrat, ui-sans-serif, system-ui, sans-serif;
       }
       a { color: inherit; }
-      .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
-      header img { height: 56px; width: auto; }
-      .place { margin: 28px 0 0; color: var(--muted); font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; }
-      h1 { margin: 8px 0 0; font-size: clamp(40px, 6vw, 64px); letter-spacing: -0.03em; line-height: 0.95; }
-      .lede { max-width: 38rem; margin: 20px 0 0; font-size: 20px; color: var(--muted); }
-      .software {
-        display: flex;
-        flex-wrap: wrap;
+      .frame {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(280px, 0.9fr) minmax(280px, 1.1fr);
+        gap: 48px;
         align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-top: 36px;
-        padding: 20px;
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        background: var(--panel);
+        padding: 48px 7vw;
       }
-      .software p { margin: 6px 0 0; color: var(--muted); }
+      img.logo { height: 72px; width: auto; }
+      .roles { margin: 36px 0 0; padding: 0; list-style: none; }
+      .roles li {
+        padding: 14px 0;
+        border-top: 1px solid var(--line);
+        font-weight: 300;
+        font-size: clamp(18px, 2vw, 26px);
+        letter-spacing: 0.18em;
+      }
+      .roles li:last-child { border-bottom: 1px solid var(--line); }
+      .kicker {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(36px, 4vw, 56px);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 0.95;
+      }
+      .deck { margin: 18px 0 0; max-width: 38rem; color: var(--muted); font-weight: 300; font-size: 18px; line-height: 1.55; }
+      .services { margin: 28px 0 0; padding: 0; list-style: none; }
+      .services li { padding: 14px 0; border-top: 1px solid var(--line); }
+      .services strong { display: block; font-weight: 500; letter-spacing: 0.04em; }
+      .services span { display: block; margin-top: 4px; color: var(--muted); font-weight: 300; font-size: 15px; }
       .button {
         display: inline-flex;
-        align-items: center;
+        margin-top: 28px;
+        padding: 14px 22px;
         border-radius: 999px;
         background: var(--ink);
-        color: var(--paper);
-        padding: 12px 18px;
-        font-weight: 600;
+        color: #111;
+        font-weight: 700;
+        letter-spacing: 0.08em;
         text-decoration: none;
+        text-transform: uppercase;
+        font-size: 13px;
       }
-      h2 { margin: 40px 0 12px; font-size: 14px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
-      ul { margin: 0; padding: 0; list-style: none; }
-      li { padding: 12px 0; border-top: 1px solid var(--line); }
-      blockquote { margin: 0; padding: 16px 0; border-top: 1px solid var(--line); }
-      blockquote p { margin: 0; }
-      cite { display: block; margin-top: 8px; color: var(--muted); font-style: normal; font-size: 14px; }
-      footer { margin-top: 40px; color: var(--muted); font-size: 14px; }
-      footer a { color: var(--ink); }
+      .contact { margin-top: 28px; color: var(--muted); font-weight: 300; letter-spacing: 0.04em; line-height: 1.7; }
+      .contact a { text-decoration: none; }
+      .contact a:hover { color: var(--ink); }
+      @media (max-width: 800px) {
+        .frame { grid-template-columns: 1fr; padding: 32px 20px 56px; gap: 36px; }
+      }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <header>
-        <img src="/brand/wide-white.png" alt="Performance Video LLC" />
-      </header>
-      <p class="place">Grapeland, Texas</p>
-      <h1>Steven Marr</h1>
-      <p class="lede">
-        Live-event technical director, project manager, and producer. Member of InfoComm since 2002.
-        University of Colorado Boulder. Trained on Barco Encore, Christie M Series, JBL Vertec, and Pandoras Box.
-      </p>
-      <section class="software">
-        <div>
-          <strong>Signal-flow drawings</strong>
-          <p>The drawing software for this shop. Place gear, wire the signals, export a patch and a pull list.</p>
-        </div>
-        <a class="button" href="/diagram">Open the software</a>
+    <main class="frame">
+      <section>
+        <img class="logo" src="/brand/wide-white.png" alt="Performance Video LLC" />
+        <ul class="roles">
+          <li>CAMERA DIRECTOR</li>
+          <li>HIGH-RES SWITCHER</li>
+          <li>VIDEO ENGINEER</li>
+        </ul>
       </section>
-      <h2>Noted work</h2>
-      <ul>
-        <li>2012 National Space Symposium</li>
-        <li>2011 National Space Symposium</li>
-        <li>Denver Gold Forum, 2011 and 2010</li>
-      </ul>
-      <h2>From people he has worked with</h2>
-      <blockquote>
-        <p>
-          Whether he's acting as a PM, TD or producer, he's extremely experienced, knowledgeable, focused, and
-          accurate. If you want a very smooth show, he's your guy.
+      <section>
+        <p class="kicker">Corporate live events · 25+ years</p>
+        <h1>Steven Marr</h1>
+        <p class="deck">
+          Three seats on a general session: cameras, screens, and the engineering that holds the show together.
         </p>
-        <cite>Tom Whitten</cite>
-      </blockquote>
-      <blockquote>
-        <p>
-          As a project manager and technical director his attention to detail, global knowledge of the AV event
-          world and personable manner is a constant reassurance that the project will be a success.
+        <ul class="services">
+          <li>
+            <strong>Camera direction</strong>
+            <span>IMAG, full program, stream feeds, and multiple MEs.</span>
+          </li>
+          <li>
+            <strong>High-res switching</strong>
+            <span>Encore, E2, Spyder, Pixel Hue, and Analog Way.</span>
+          </li>
+          <li>
+            <strong>Video engineer</strong>
+            <span>System design, signal flow, and EIC on the show floor.</span>
+          </li>
+        </ul>
+        <a class="button" href="/diagram">Open the software</a>
+        <p class="contact">
+          <a href="tel:+13033862425">(303) 386-2425</a><br />
+          <a href="mailto:Steven@performance-video.com">Steven@performance-video.com</a><br />
+          1152 County Road 1709<br />
+          Slocum, TX 75844<br />
+          <a href="https://www.linkedin.com/in/stevenmarr/">LinkedIn</a>
         </p>
-        <cite>Barry Harris</cite>
-      </blockquote>
-      <footer>
-        <a href="https://www.linkedin.com/in/stevenmarr/">LinkedIn</a>
-        · Performance Video LLC
-      </footer>
-    </div>
+      </section>
+    </main>
   </body>
 </html>
