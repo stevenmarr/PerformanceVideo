@@ -5,6 +5,7 @@ RUN npm ci
 COPY . .
 ENV NITRO_PRESET=node
 ENV VITE_AUTH_ENABLED=true
+ENV VITE_PUBLIC_BASE=/diagram
 # npm puts node_modules/.bin on PATH. Calling the wrapper directly does not,
 # so `vite` is missing and the build exits with ENOENT.
 RUN npm run build:node

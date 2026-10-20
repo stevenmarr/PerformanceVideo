@@ -39,3 +39,26 @@ export function previewPathRewrite(): LocationRewrite | undefined {
   const prefix = previewPathPrefix(window.location.hostname, window.location.pathname);
   return prefix ? prefixRewrite(prefix) : undefined;
 }
+
+export function publicBase(): string {
+  const value = import.meta.env.VITE_PUBLIC_BASE;
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim().replace(/\/$/, "");
+  if (!trimmed || trimmed === "/") return "";
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+/** A root-relative path, prefixed when the droplet serves the app under `/diagram`. */
+export function publicHref(path: string): string {
+  const base = publicBase();
+  if (!base) return path;
+  if (path === "/") return base;
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+export function appPathRewrite(): LocationRewrite | undefined {
+  const preview = previewPathRewrite();
+  if (preview) return preview;
+  const base = publicBase();
+  return base ? prefixRewrite(base) : undefined;
+}

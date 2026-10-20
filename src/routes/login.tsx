@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { publicHref } from "@/lib/preview-path-prefix";
 import { authClient, authEnabled, GROK_PROVIDERS, signIn } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -40,7 +41,7 @@ function Login() {
         });
         if (result.error) throw new Error(result.error.message ?? "Could not sign in.");
       }
-      window.location.href = "/";
+      window.location.href = publicHref("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
     } finally {
