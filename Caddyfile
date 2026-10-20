@@ -3,7 +3,15 @@ www.{$DOMAIN} {
 }
 
 {$DOMAIN} {
-	@bare path / /library /library/* /draw /draw/* /company /company/* /login /login/*
+	@bare path /library /library/* /draw /draw/* /company /company/* /login /login/*
 	redir @bare /diagram{uri}
-	reverse_proxy app:8080
+	@home path /
+	handle @home {
+		root * /srv/site
+		rewrite * /index.html
+		file_server
+	}
+	handle {
+		reverse_proxy app:8080
+	}
 }
