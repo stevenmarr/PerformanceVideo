@@ -323,10 +323,20 @@ export function FlowCanvas({
 
   const signalColors = useMemo(() => signalMap(catalog), [catalog]);
   const [commandSlot, setCommandSlot] = useState<HTMLElement | null>(null);
+  const [gearBar, setGearBar] = useState(false);
 
   useEffect(() => {
     setCommandSlot(document.getElementById("shell-commands"));
+    setGearBar(window.localStorage.getItem("pv-gear-bar") === "show");
   }, []);
+
+  function toggleGearBar() {
+    setGearBar((current) => {
+      const next = !current;
+      window.localStorage.setItem("pv-gear-bar", next ? "show" : "hide");
+      return next;
+    });
+  }
 
   const place = useCallback(
     (item: EquipmentRow, at?: { x: number; y: number }) => {
@@ -1084,6 +1094,13 @@ export function FlowCanvas({
               </button>
               <button
                 type="button"
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${gearBar ? "bg-ink text-paper" : "border border-line bg-panel"}`}
+                onClick={toggleGearBar}
+              >
+                {gearBar ? "Hide gear" : "Gear bar"}
+              </button>
+              <button
+                type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${cableStyle === "square" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
                 onClick={() => useSquare(cableStyle === "square" ? "curve" : "square")}
               >
@@ -1124,10 +1141,11 @@ export function FlowCanvas({
             commandSlot,
           )
         : null}
-      <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} />
+      {gearBar ? <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} /> : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-3 py-1.5">
           <p className="truncate text-sm text-muted">{hint}</p>
+          {gearBar ? null : <p className="shrink-0 text-xs text-muted">Right-click the canvas to add gear.</p>}
           {titleLine ? <p className="truncate text-xs text-muted">{titleLine}</p> : null}
         </div>
         <div className="relative min-h-0 flex-1">
