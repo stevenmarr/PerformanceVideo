@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as CompanyRouteImport } from './routes/company'
 import { Route as DrawRouteImport } from './routes/draw'
 import { Route as LibraryRouteImport } from './routes/library'
@@ -19,6 +20,11 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompanyRoute = CompanyRouteImport.update({
@@ -49,6 +55,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/company': typeof CompanyRoute
   '/draw': typeof DrawRoute
   '/library': typeof LibraryRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/company': typeof CompanyRoute
   '/draw': typeof DrawRoute
   '/library': typeof LibraryRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/company': typeof CompanyRoute
   '/draw': typeof DrawRoute
   '/library': typeof LibraryRoute
@@ -74,12 +83,27 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/company' | '/draw' | '/library' | '/login' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/company'
+    | '/draw'
+    | '/library'
+    | '/login'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/company' | '/draw' | '/library' | '/login' | '/api/auth/$'
+  to:
+    | '/'
+    | '/admin'
+    | '/company'
+    | '/draw'
+    | '/library'
+    | '/login'
+    | '/api/auth/$'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/company'
     | '/draw'
     | '/library'
@@ -89,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   CompanyRoute: typeof CompanyRoute
   DrawRoute: typeof DrawRoute
   LibraryRoute: typeof LibraryRoute
@@ -103,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/company': {
@@ -145,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   CompanyRoute: CompanyRoute,
   DrawRoute: DrawRoute,
   LibraryRoute: LibraryRoute,

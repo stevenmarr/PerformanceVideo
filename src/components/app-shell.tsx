@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { adminProbe } from "@/lib/admin.functions";
 
 const links = [
   { to: "/", label: "Studio" },
@@ -14,6 +15,23 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
   const { user, isPending } = useCurrentUserState();
   const navigate = useNavigate();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [admin, setAdmin] = useState(false);
+  const nav = admin ? [...links, { to: "/admin" as const, label: "Admin" }] : links;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    adminProbe()
+      .then((result) => {
+        if (!cancelled) setAdmin(result.admin);
+      })
+      .catch(() => {
+        if (!cancelled) setAdmin(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     function onContext(event: MouseEvent) {
@@ -48,7 +66,7 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
             />
           </Link>
           <nav className="flex shrink-0 items-center gap-1">
-            {links.map((link) => (
+            {nav.map((link) => (
               <Link
                 key={link.to}
                 to={link.to}
@@ -90,7 +108,7 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
           onClick={(event) => event.stopPropagation()}
         >
           <p className="px-2 py-1 text-xs font-semibold tracking-[0.14em] text-muted uppercase">Performance Video</p>
-          {links.map((link) => (
+          {nav.map((link) => (
             <button
               key={link.to}
               type="button"

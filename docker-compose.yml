@@ -21,6 +21,7 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set BETTER_AUTH_URL in .env}
       VITE_AUTH_ENABLED: "true"
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       HOST: 0.0.0.0
       PORT: "8080"
     depends_on:

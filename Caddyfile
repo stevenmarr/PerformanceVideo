@@ -3,7 +3,7 @@ www.{$DOMAIN} {
 }
 
 {$DOMAIN} {
-	@bare path /library /library/* /draw /draw/* /company /company/* /login /login/*
+	@bare path /library /library/* /draw /draw/* /company /company/* /login /login/* /admin /admin/*
 	redir @bare /diagram{uri}
 	@home path /
 	handle @home {
