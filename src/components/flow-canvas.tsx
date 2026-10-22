@@ -5,6 +5,7 @@
  * Drag a selected box to move the whole selection.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   ConnectionLineType,
@@ -307,8 +308,8 @@ export function FlowCanvas({
     seeded.missing
       ? "Some boxes on this drawing are no longer in the library."
       : drawing.graph.nodes.length
-        ? `${drawing.name} is open. Click a box to edit its unit ID, IP, and notes.`
-        : "Place gear, then drag an output to an input it can lock.",
+        ? `${drawing.name} is open. Signal runs left to right.`
+        : "Place gear left to right, then drag an output to an input it can lock.",
   );
   const [drawingId, setDrawingId] = useState(drawing.id);
   const [name, setName] = useState(drawing.name);
@@ -321,16 +322,11 @@ export function FlowCanvas({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const signalColors = useMemo(() => signalMap(catalog), [catalog]);
+  const [commandSlot, setCommandSlot] = useState<HTMLElement | null>(null);
 
-  const groups = useMemo(() => {
-    const map = new Map<string, EquipmentRow[]>();
-    for (const item of catalog.equipment) {
-      const list = map.get(item.deviceType) ?? [];
-      list.push(item);
-      map.set(item.deviceType, list);
-    }
-    return [...map.entries()];
-  }, [catalog.equipment]);
+  useEffect(() => {
+    setCommandSlot(document.getElementById("shell-commands"));
+  }, []);
 
   const place = useCallback(
     (item: EquipmentRow, at?: { x: number; y: number }) => {
@@ -339,7 +335,7 @@ export function FlowCanvas({
       const node: EquipmentNode = {
         id: `box-${item.id}-${Date.now()}`,
         type: "equipment",
-        position: at ?? { x: 48 + (nodes.length % 3) * 320, y: 36 + Math.floor(nodes.length / 3) * 280 },
+        position: at ?? { x: 48 + nodes.length * 300, y: 48 },
         data: {
           equipmentId: item.id,
           unitId: stamp,
@@ -1044,95 +1040,97 @@ export function FlowCanvas({
     .join(" · ");
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <aside className="max-h-40 shrink-0 overflow-y-auto border-b border-line bg-panel md:max-h-none md:w-72 md:border-r md:border-b-0">
-        <Picker categories={groups} />
-      </aside>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-panel px-3 py-2">
-          <div className="flex min-w-0 flex-col gap-1">
-            <p className="rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-sm">{hint}</p>
-            {titleLine ? <p className="px-4 text-xs text-muted">{titleLine}</p> : null}
-            <p className="px-4 text-xs text-muted">Drag empty canvas to select. Shift adds. Ctrl or ⌘ toggles. Space or the middle mouse pans.</p>
-          </div>
-          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-            <select
-              aria-label="Open a drawing"
-              className="h-10 max-w-64 min-w-40 rounded-xl border border-line bg-panel px-3 text-sm text-ink"
-              value={drawingId ?? ""}
-              onChange={(event) => {
-                const id = Number(event.target.value);
-                if (id) onOpen(id);
-              }}
-            >
-              {drawingId == null ? <option value="">Unsaved drawing</option> : null}
-              {drawings.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <input
-              aria-label="Drawing name"
-              className="h-10 w-48 rounded-xl border border-line bg-panel px-3 text-sm text-ink outline-none"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-            <button type="button" className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
-              Save
-            </button>
-            <button type="button" className="rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
-              New
-            </button>
-            <button
-              type="button"
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${cableStyle === "square" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
-              onClick={() => useSquare(cableStyle === "square" ? "curve" : "square")}
-            >
-              90° cables
-            </button>
-            <button
-              type="button"
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${sheet === "patch" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
-              onClick={() => setSheet((current) => (current === "patch" ? "draw" : "patch"))}
-            >
-              Patch
-            </button>
-            <button
-              type="button"
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${sheet === "pull" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
-              onClick={() => setSheet((current) => (current === "pull" ? "draw" : "pull"))}
-            >
-              Pull list
-            </button>
-            {selectedNodes.length >= 2 ? (
-              <button type="button" className="rounded-full border border-line bg-panel px-4 py-2 text-sm font-semibold" onClick={startGroup}>
-                Group
+    <div className="flex min-h-0 flex-1 flex-col">
+      {commandSlot
+        ? createPortal(
+            <>
+              {inside ? (
+                <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm font-semibold" onClick={backToShow}>
+                  Back to show
+                </button>
+              ) : null}
+              {sheet !== "draw" ? (
+                <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => setSheet("draw")}>
+                  Back to drawing
+                </button>
+              ) : null}
+              <select
+                aria-label="Open a drawing"
+                className="h-10 max-w-64 min-w-40 shrink-0 rounded-xl border border-line bg-panel px-3 text-sm text-ink"
+                value={drawingId ?? ""}
+                onChange={(event) => {
+                  const id = Number(event.target.value);
+                  if (id) onOpen(id);
+                }}
+              >
+                {drawingId == null ? <option value="">Unsaved drawing</option> : null}
+                {drawings.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="Drawing name"
+                className="h-10 w-40 shrink-0 rounded-xl border border-line bg-panel px-3 text-sm text-ink outline-none"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+              <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
+                Save
               </button>
-            ) : null}
-            <button
-              type="button"
-              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
-              onClick={() =>
-                removeIds(
-                  selectedNodes.map((node) => node.id),
-                  selectedEdges.map((edge) => edge.id),
-                )
-              }
-            >
-              {removeLabel}
-            </button>
-          </div>
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
+                New
+              </button>
+              <button
+                type="button"
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${cableStyle === "square" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
+                onClick={() => useSquare(cableStyle === "square" ? "curve" : "square")}
+              >
+                90° cables
+              </button>
+              <button
+                type="button"
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${sheet === "patch" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
+                onClick={() => setSheet((current) => (current === "patch" ? "draw" : "patch"))}
+              >
+                Patch
+              </button>
+              <button
+                type="button"
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${sheet === "pull" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
+                onClick={() => setSheet((current) => (current === "pull" ? "draw" : "pull"))}
+              >
+                Pull list
+              </button>
+              {selectedNodes.length >= 2 ? (
+                <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm font-semibold" onClick={startGroup}>
+                  Group
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
+                onClick={() =>
+                  removeIds(
+                    selectedNodes.map((node) => node.id),
+                    selectedEdges.map((edge) => edge.id),
+                  )
+                }
+              >
+                {removeLabel}
+              </button>
+            </>,
+            commandSlot,
+          )
+        : null}
+      <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-3 py-1.5">
+          <p className="truncate text-sm text-muted">{hint}</p>
+          {titleLine ? <p className="truncate text-xs text-muted">{titleLine}</p> : null}
         </div>
         <div className="relative min-h-0 flex-1">
-        {inside ? (
-          <div className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-sm">
-            <span>Inside {inside.label}</span>
-            <button type="button" className="font-semibold" onClick={backToShow}>
-              Back to show
-            </button>
-          </div>
-        ) : null}
         {pendingGroup ? (
           <form
             onSubmit={commitGroup}
@@ -1419,7 +1417,7 @@ export function FlowCanvas({
         {menu?.kind === "pane" ? (
           <GearMenu
             menu={menu}
-            categories={groups}
+            equipment={catalog.equipment}
             onClose={() => setMenu(null)}
             onPick={(item) => {
               place(item, { x: menu.flowX, y: menu.flowY });
@@ -1740,9 +1738,6 @@ function ListSheet({
             onClick={() => downloadCsv(filename, [header, ...body])}
           >
             Download CSV
-          </button>
-          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={onClose}>
-            Back to drawing
           </button>
         </div>
       </div>
@@ -2103,103 +2098,126 @@ function EdgeMenu({
   );
 }
 
-function Picker({ categories }: { categories: [string, EquipmentRow[]][] }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+function makerName(name: string) {
+  return name === "Unbranded" ? "Generic" : name;
+}
+
+function GearColumns({
+  equipment,
+  onPick,
+  compact = false,
+}: {
+  equipment: EquipmentRow[];
+  onPick: (item: EquipmentRow) => void;
+  compact?: boolean;
+}) {
+  const types = useMemo(
+    () => [...new Set(equipment.map((item) => item.deviceType))].sort((a, b) => a.localeCompare(b)),
+    [equipment],
+  );
+  const [type, setType] = useState(types[0] ?? "");
+  const ofType = equipment.filter((item) => item.deviceType === (types.includes(type) ? type : (types[0] ?? "")));
+  const makers = [...new Set([...ofType.map((item) => item.manufacturer), "Unbranded"])].sort((a, b) =>
+    a === "Unbranded" ? -1 : b === "Unbranded" ? 1 : a.localeCompare(b),
+  );
+  const [maker, setMaker] = useState("Unbranded");
+  const chosenMaker = makers.includes(maker) ? maker : (makers[0] ?? "Unbranded");
+  const models = ofType.filter((item) => item.manufacturer === chosenMaker).sort((a, b) => a.model.localeCompare(b.model));
+  const chosenType = types.includes(type) ? type : (types[0] ?? "");
+
   return (
-    <div className="p-4">
-      <p className="text-xs font-semibold tracking-[0.16em] text-muted uppercase">Gear</p>
-      <p className="mt-2 text-sm text-muted">Drag a model onto the drawing, or right-click the canvas.</p>
-      {categories.length === 0 ? (
-        <p className="mt-4 text-sm">No models in the library yet.</p>
-      ) : (
-        categories.map(([typeName, items]) => {
-          const expanded = open[typeName] ?? false;
-          return (
-            <section key={typeName} className="mt-3">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between py-1 text-left text-sm font-semibold"
-                onClick={() => setOpen((current) => ({ ...current, [typeName]: !expanded }))}
-              >
-                {typeName}
-                <span className="text-xs text-muted">{expanded ? "Collapse" : items.length}</span>
-              </button>
-              {expanded ? (
-                <ul className="mt-1 space-y-2">
-                  {items.map((item) => (
-                    <li key={item.id}>
-                      <div
-                        draggable
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData("text/gear-id", String(item.id));
-                          event.dataTransfer.effectAllowed = "copy";
-                        }}
-                        className="cursor-grab rounded-xl border border-line bg-paper px-3 py-3 active:cursor-grabbing"
-                      >
-                        <span className="block text-sm font-semibold">{item.model}</span>
-                        <span className="block text-xs text-muted">{item.manufacturer}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          );
-        })
-      )}
+    <div className={`grid min-h-0 grid-cols-3 ${compact ? "h-64" : "h-36"}`}>
+      <Column title="Type">
+        {types.map((name) => (
+          <Choice key={name} active={name === chosenType} onClick={() => setType(name)}>
+            {name}
+          </Choice>
+        ))}
+      </Column>
+      <Column title="Manufacturer">
+        {makers.map((name) => (
+          <Choice key={name} active={name === chosenMaker} onClick={() => setMaker(name)}>
+            {makerName(name)}
+          </Choice>
+        ))}
+      </Column>
+      <Column title="Model">
+        {models.length === 0 ? (
+          <p className="px-2 py-2 text-xs text-muted">No {makerName(chosenMaker).toLowerCase()} models of this type.</p>
+        ) : (
+          models.map((item) => (
+            <div
+              key={item.id}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData("text/gear-id", String(item.id));
+                event.dataTransfer.effectAllowed = "copy";
+              }}
+              className="cursor-grab active:cursor-grabbing"
+            >
+              <Choice onClick={() => onPick(item)}>{item.model}</Choice>
+            </div>
+          ))
+        )}
+      </Column>
+    </div>
+  );
+}
+
+function Column({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-col border-l border-line first:border-l-0">
+      <p className="shrink-0 px-2 py-1 text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">{title}</p>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    </div>
+  );
+}
+
+function Choice({ active = false, onClick, children }: { active?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      className={`block w-full truncate px-2 py-1.5 text-left text-sm ${active ? "bg-ink font-semibold text-paper" : "hover:bg-paper"}`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function GearStrip({ equipment, onPick }: { equipment: EquipmentRow[]; onPick: (item: EquipmentRow) => void }) {
+  return (
+    <div className="shrink-0 border-b border-line bg-panel">
+      <GearColumns equipment={equipment} onPick={onPick} />
     </div>
   );
 }
 
 function GearMenu({
   menu,
-  categories,
+  equipment,
   onPick,
   onClose,
 }: {
   menu: { x: number; y: number; flowX: number; flowY: number };
-  categories: [string, EquipmentRow[]][];
+  equipment: EquipmentRow[];
   onPick: (item: EquipmentRow) => void;
   onClose: () => void;
 }) {
-  const [open, setOpen] = useState<string | null>(categories[0]?.[0] ?? null);
-  const point = menuPoint(menu.x, menu.y, 280, 320);
+  const point = menuPoint(menu.x, menu.y, 560, 320);
   return (
     <div
-      className="fixed z-40 max-h-80 w-64 overflow-y-auto rounded-xl border border-line bg-panel p-2 shadow-lg"
+      className="fixed z-40 w-[34rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-line bg-panel shadow-lg"
       style={point}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <div className="flex items-center justify-between px-2 py-1">
-        <p className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">Add gear</p>
+      <div className="flex items-center justify-between px-3 py-2">
+        <p className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">Add gear · left to right</p>
         <button type="button" className="text-xs text-muted" onClick={onClose}>
           Close
         </button>
       </div>
-      {categories.map(([typeName, items]) => (
-        <div key={typeName}>
-          <button
-            type="button"
-            className="flex w-full items-center justify-between px-2 py-2 text-left text-sm font-semibold"
-            onClick={() => setOpen((current) => (current === typeName ? null : typeName))}
-          >
-            {typeName}
-            <span className="text-xs text-muted">{open === typeName ? "Collapse" : items.length}</span>
-          </button>
-          {open === typeName
-            ? items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-paper"
-                  onClick={() => onPick(item)}
-                >
-                  {item.manufacturer} {item.model}
-                </button>
-              ))
-            : null}
-        </div>
-      ))}
+      <GearColumns equipment={equipment} onPick={onPick} compact />
     </div>
   );
 }

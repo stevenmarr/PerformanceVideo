@@ -38,16 +38,16 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
 
   return (
     <div className={bleed ? "flex h-dvh flex-col overflow-hidden bg-paper text-ink" : "flex min-h-screen flex-col bg-paper text-ink"}>
-      <header className="shrink-0 border-b border-line bg-panel">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
-          <Link to="/" className="mr-auto flex items-center gap-3">
+      <header className="sticky top-0 z-40 shrink-0 border-b border-line bg-panel">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <Link to="/" className="flex shrink-0 items-center">
             <img
               src="/brand/wide-white.png"
               alt="Performance Video LLC"
-              className="h-11 w-auto object-contain md:h-14"
+              className="h-8 w-auto object-contain"
             />
           </Link>
-          <nav className="flex items-center gap-1">
+          <nav className="flex shrink-0 items-center gap-1">
             {links.map((link) => (
               <Link
                 key={link.to}
@@ -59,7 +59,8 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
               </Link>
             ))}
           </nav>
-          <div className="flex h-10 items-center">
+          <div id="shell-commands" className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto" />
+          <div className="flex h-10 shrink-0 items-center">
             {isPending ? (
               <div className="h-8 w-8 animate-pulse rounded-full bg-line" />
             ) : user ? (
