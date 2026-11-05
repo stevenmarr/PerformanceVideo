@@ -9,11 +9,12 @@ export const Route = createFileRoute("/login")({ component: Login });
 function Login() {
   const { user, isPending } = useCurrentUserState();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
 
   if (!isPending && user) {
@@ -23,8 +24,18 @@ function Login() {
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
+    setNotice("");
     setPending(true);
     try {
+      if (mode === "forgot") {
+        const result = await authClient.requestPasswordReset({
+          email: email.trim(),
+          redirectTo: `${window.location.origin}${publicHref("/reset-password")}`,
+        });
+        if (result.error) throw new Error(result.error.message ?? "Could not start a reset.");
+        setNotice("If that email has an account, a reset link is on its way. It expires in one hour.");
+        return;
+      }
       if (mode === "up") {
         const result = await authClient.signUp.email({
           name: name.trim() || email.trim(),
@@ -55,8 +66,12 @@ function Login() {
         <Link to="/">
           <img src="/brand/wide-white.png" alt="Performance Video LLC" className="mb-8 h-16 w-auto" />
         </Link>
-        <h1 className="text-3xl font-semibold tracking-tight">Sign in</h1>
-        <p className="mt-2 text-sm text-muted">Your library stays with this account.</p>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {mode === "forgot" ? "Reset password" : "Sign in"}
+        </h1>
+        <p className="mt-2 text-sm text-muted">
+          {mode === "forgot" ? "We will email a link to choose a new password." : "Your library stays with this account."}
+        </p>
         {isPending ? <div className="mt-8 h-10 animate-pulse rounded-full bg-line" /> : null}
         {authEnabled && !user ? (
           <form onSubmit={onSubmit} className="mt-8 space-y-3">
@@ -64,27 +79,47 @@ function Login() {
                 <Field label="Name" value={name} onChange={setName} autoComplete="name" />
               ) : null}
               <Field label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" />
-              <Field
-                label="Password"
-                value={password}
-                onChange={setPassword}
-                type="password"
-                autoComplete={mode === "up" ? "new-password" : "current-password"}
-              />
+              {mode === "forgot" ? null : (
+                <Field
+                  label="Password"
+                  value={password}
+                  onChange={setPassword}
+                  type="password"
+                  autoComplete={mode === "up" ? "new-password" : "current-password"}
+                />
+              )}
               {error ? <p className="text-sm text-danger">{error}</p> : null}
+              {notice ? <p className="text-sm">{notice}</p> : null}
               <button
                 type="submit"
                 disabled={pending}
                 className="w-full rounded-full bg-ink px-4 py-3 text-sm font-semibold text-paper disabled:opacity-60"
               >
-                {pending ? "Working…" : mode === "up" ? "Create account" : "Sign in with email"}
+                {pending ? "Working…" : mode === "up" ? "Create account" : mode === "forgot" ? "Send reset link" : "Sign in with email"}
               </button>
+              {mode === "in" ? (
+                <button
+                  type="button"
+                  className="w-full text-sm text-muted underline underline-offset-4"
+                  onClick={() => {
+                    setMode("forgot");
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Forgot password
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="w-full text-sm text-muted underline underline-offset-4"
-                onClick={() => setMode(mode === "up" ? "in" : "up")}
+                onClick={() => {
+                  setMode(mode === "in" ? "up" : "in");
+                  setError("");
+                  setNotice("");
+                }}
               >
-                {mode === "up" ? "Already have an account" : "Create an email account"}
+                {mode === "in" ? "Create an email account" : mode === "up" ? "Already have an account" : "Back to sign in"}
               </button>
             </form>
         ) : null}

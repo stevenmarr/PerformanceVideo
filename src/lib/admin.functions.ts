@@ -3,7 +3,9 @@
  * email is listed in ADMIN_EMAILS, or when the account name is Steven Marr and
  * nobody has been granted yet. Later Steven Marr signups do not get in.
  */
+import { randomBytes } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
+import { hashPassword } from "@better-auth/utils/password";
 import { getSql, type Sql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { asDrawingFile, type DrawingTitle } from "@/lib/drawing";
@@ -282,6 +284,39 @@ export const adminDrawing = createServerFn({ method: "GET" })
         };
       }),
     };
+  });
+
+export const adminSetPassword = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { userId: string; password: string }) => ({
+    userId: String(input?.userId ?? ""),
+    password: String(input?.password ?? ""),
+  }))
+  .handler(async ({ context, data }): Promise<{ error: string | null }> => {
+    const opened = await openAdmin(context.userId);
+    if (!opened || !data.userId) return { error: "Not an admin." };
+    if (data.password.length < 8 || data.password.length > 128) return { error: "Use 8 to 128 characters." };
+    const people = await opened.sql<{ id: string }>`select id from "user" where id = ${data.userId}`;
+    if (!people.length) return { error: "That account was not found." };
+    const hash = await hashPassword(data.password);
+    const existing = await opened.sql<{ id: string }>`
+      select id from "account" where "userId" = ${data.userId} and "providerId" = ${"credential"}
+    `;
+    if (existing.length) {
+      await opened.sql`
+        update "account"
+        set "password" = ${hash}, "updatedAt" = now()
+        where "userId" = ${data.userId} and "providerId" = ${"credential"}
+      `;
+    } else {
+      const id = randomBytes(16).toString("hex");
+      await opened.sql`
+        insert into "account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
+        values (${id}, ${data.userId}, ${"credential"}, ${data.userId}, ${hash}, now(), now())
+      `;
+    }
+    await opened.sql`delete from "session" where "userId" = ${data.userId}`;
+    return { error: null };
   });
 
 function safeJson(text: string): unknown {

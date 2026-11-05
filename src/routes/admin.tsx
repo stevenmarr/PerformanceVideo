@@ -6,6 +6,7 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   adminDrawing,
   adminHome,
+  adminSetPassword,
   adminUser,
   type AdminDrawingView,
   type AdminHome,
@@ -19,6 +20,8 @@ function AdminPage() {
   const [home, setHome] = useState<AdminHome | null>(null);
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
   const [drawing, setDrawing] = useState<AdminDrawingView | null>(null);
+  const [password, setPassword] = useState("");
+  const [passwordNote, setPasswordNote] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -39,6 +42,8 @@ function AdminPage() {
   async function openUser(userId: string) {
     setError("");
     setDrawing(null);
+    setPassword("");
+    setPasswordNote("");
     setDetail(null);
     try {
       const next = await adminUser({ data: userId });
@@ -126,6 +131,39 @@ function AdminPage() {
           </button>
           <h2 className="mt-3 text-2xl font-semibold">{detail.user.name}</h2>
           <p className="mt-1 text-sm text-muted">{detail.user.email}</p>
+          <form
+            className="mt-4 flex flex-wrap items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setPasswordNote("");
+              setError("");
+              void adminSetPassword({ data: { userId: detail.user.id, password } })
+                .then((result) => {
+                  if (result.error) setError(result.error);
+                  else {
+                    setPassword("");
+                    setPasswordNote("Password updated. Their other sessions were signed out.");
+                  }
+                })
+                .catch(() => setError("The password could not be changed."));
+            }}
+          >
+            <label className="text-sm">
+              New password
+              <input
+                type="text"
+                autoComplete="off"
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="mt-1 block h-10 rounded-xl border border-line bg-panel px-3 text-ink outline-none"
+              />
+            </label>
+            <button type="submit" className="h-10 rounded-full bg-ink px-4 text-sm font-semibold text-paper">
+              Set password
+            </button>
+          </form>
+          {passwordNote ? <p className="mt-2 text-sm">{passwordNote}</p> : null}
           {detail.studio?.companyName ? (
             <p className="mt-2 text-sm">
               {detail.studio.companyName}
