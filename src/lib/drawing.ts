@@ -28,6 +28,10 @@ export type DrawingNode = {
   x: number;
   y: number;
   interfaces?: NetworkInterface[];
+  latencyMs?: number;
+  latencyFrames?: number;
+  latencyEstimate?: boolean;
+  format?: string;
 };
 
 export type DrawingEdge = {
