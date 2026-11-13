@@ -29,6 +29,8 @@ import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle, NetworkInterf
 import { NetworkBoard } from "@/components/network-board";
 import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
+import { OrthogonalCable, RouteContext } from "@/components/orthogonal-edge";
+import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
 import { connectionsToCsv, parsePatchDocument, patchDocument, validatePatch, type PatchConnection, type PatchPort } from "@/lib/patch/document";
@@ -174,8 +176,10 @@ function signalMap(catalog: Catalog) {
   return map;
 }
 
+const edgeTypes = { ortho: OrthogonalCable };
+
 function edgeType(style: CableStyle) {
-  return style === "square" ? "step" : "default";
+  return style === "square" ? "ortho" : "default";
 }
 
 function hydrate(file: DrawingFile, catalog: Catalog) {
@@ -346,6 +350,31 @@ export function FlowCanvas({
   const [name, setName] = useState(drawing.name);
   const [title, setTitle] = useState<DrawingTitle>(drawing.graph.title);
   const [cableStyle, setCableStyle] = useState<CableStyle>(drawing.graph.cableStyle);
+  const routes = useMemo(() => {
+    if (cableStyle !== "square") return new Map<string, { x: number; y: number }[]>();
+    const boxes = nodes.map((node) => {
+      const size = gearNodeSize(node.data.pins, { ip: node.data.ip, notes: node.data.specialNotes });
+      return { id: node.id, x: node.position.x, y: node.position.y, w: size.width, h: size.height };
+    });
+    const byId = new Map(boxes.map((box) => [box.id, box]));
+    return routeEdges(
+      boxes,
+      edges.flatMap((edge) => {
+        const source = byId.get(edge.source);
+        const target = byId.get(edge.target);
+        if (!source || !target) return [];
+        return [{
+          edgeId: edge.id,
+          sourceId: edge.source,
+          targetId: edge.target,
+          x1: source.x + source.w,
+          y1: source.y + source.h / 2,
+          x2: target.x,
+          y2: target.y + target.h / 2,
+        }];
+      }),
+    );
+  }, [cableStyle, edges, nodes]);
   const [sheet, setSheet] = useState<"draw" | "patch" | "pull">("draw");
   const [patchFocus, setPatchFocus] = useState<{ label: string; nodeIds: string[] } | null>(null);
   const [patchPop, setPatchPop] = useState<{ x: number; y: number; label: string; nodeIds: string[]; canRemove: boolean } | null>(null);
@@ -1368,7 +1397,9 @@ export function FlowCanvas({
           </form>
         ) : null}
         <div className="absolute inset-0" onPointerDownCapture={onCanvasPointerDown} onClickCapture={onCanvasClickCapture}>
+          <RouteContext.Provider value={routes}>
           <ReactFlow
+            edgeTypes={edgeTypes}
             colorMode="dark"
             nodes={nodes}
             edges={edges}
@@ -1511,6 +1542,7 @@ export function FlowCanvas({
               ) : null}
             </ViewportPortal>
           </ReactFlow>
+          </RouteContext.Provider>
         </div>
         {sheet !== "draw" ? (
           <ListSheet
