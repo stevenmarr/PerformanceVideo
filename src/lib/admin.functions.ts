@@ -5,15 +5,18 @@
  */
 import { randomBytes } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
-import { hashPassword } from "@better-auth/utils/password";
-import { getSql, type Sql } from "@/lib/db";
+import { hashPassword } from "@/lib/auth/password-crypto";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { requireAdmin, writeAudit } from "@/lib/admin/access";
 import { asDrawingFile, type DrawingTitle } from "@/lib/drawing";
 
 export type AdminUserRow = {
   id: string;
   name: string;
   email: string;
+  username: string;
+  role: string;
+  disabled: boolean;
   createdAt: string;
   drawings: number;
   models: number;
@@ -61,43 +64,14 @@ export type AdminDrawingView = {
   cables: { fromUnit: string; fromJack: string; signal: string; toUnit: string; toJack: string; cable: string }[];
 };
 
-type Person = { id: string; name: string; email: string };
-
-function adminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS ?? "")
-    .split(/[,;\s]+/)
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isSteven(name: string): boolean {
-  const words = name.trim().toLowerCase().split(/\s+/);
-  return words.includes("steven") && words.includes("marr");
-}
-
-async function openAdmin(userId: string): Promise<{ sql: Sql; person: Person } | null> {
-  const sql = await getSql();
-  const people = await sql<Person>`select id, name, email from "user" where id = ${userId}`;
-  const person = people[0];
-  if (!person) return null;
-  const email = person.email.trim().toLowerCase();
-  const listed = adminEmails().includes(email);
-  const held = await sql<{ user_id: string }>`select user_id from admins where user_id = ${userId}`;
-  if (!held.length && listed) {
-    await sql`
-      insert into admins (user_id, email, name)
-      values (${person.id}, ${person.email}, ${person.name})
-      on conflict (user_id) do nothing
-    `;
-  } else if (!held.length && isSteven(person.name)) {
-    await sql`
-      insert into admins (user_id, email, name)
-      select ${person.id}, ${person.email}, ${person.name}
-      where not exists (select 1 from admins)
-    `;
-  }
-  const allowed = await sql<{ user_id: string }>`select user_id from admins where user_id = ${userId}`;
-  return allowed.length ? { sql, person } : null;
+async function openAdmin(userId: string) {
+  const opened = await requireAdmin(userId);
+  if (!opened) return null;
+  return {
+    sql: opened.sql,
+    person: { id: opened.actor.id, name: opened.actor.name, email: opened.actor.email },
+    actorId: opened.actor.id,
+  };
 }
 
 export const adminProbe = createServerFn({ method: "GET" })
@@ -109,19 +83,40 @@ export const adminProbe = createServerFn({ method: "GET" })
 
 export const adminHome = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<AdminHome> => {
+  .validator((search: string) => String(search ?? "").trim().slice(0, 80))
+  .handler(async ({ context, data: search }): Promise<AdminHome> => {
     const opened = await openAdmin(context.userId);
     if (!opened) return { admin: false, you: null, users: [] };
-    const users = await opened.sql<AdminUserRow & { created_at: string; last_drawing: string }>`
+    const pattern = `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+    const users = await opened.sql<{
+      id: string;
+      name: string;
+      email: string;
+      username: string;
+      role: string;
+      disabled: boolean;
+      created_at: string;
+      drawings: number;
+      models: number;
+      systems: number;
+      last_drawing: string;
+    }>`
       select u.id,
              u.name,
              u.email,
+             coalesce(u.username, '') as username,
+             coalesce(u.role, 'user') as role,
+             coalesce(u.disabled, false) as disabled,
              u."createdAt"::text as created_at,
              (select count(*) from drawings d where d.user_id = u.id) as drawings,
              (select count(*) from equipment e where e.user_id = u.id) as models,
              (select count(*) from equipment e where e.user_id = u.id and e.kind = 'system') as systems,
              coalesce((select max(updated_at)::text from drawings d where d.user_id = u.id), '') as last_drawing
       from "user" u
+      where ${search} = ''
+         or u.name ilike ${pattern} escape '\\'
+         or u.email ilike ${pattern} escape '\\'
+         or u.username ilike ${pattern} escape '\\'
       order by u."createdAt"
     `;
     return {
@@ -131,6 +126,9 @@ export const adminHome = createServerFn({ method: "GET" })
         id: row.id,
         name: row.name,
         email: row.email,
+        username: row.username,
+        role: row.role,
+        disabled: Boolean(row.disabled),
         createdAt: row.created_at,
         drawings: Number(row.drawings),
         models: Number(row.models),
@@ -315,7 +313,12 @@ export const adminSetPassword = createServerFn({ method: "POST" })
         values (${id}, ${data.userId}, ${"credential"}, ${data.userId}, ${hash}, now(), now())
       `;
     }
+    const force = data.userId !== opened.actorId;
+    await opened.sql`
+      update "user" set must_change_password = ${force}, "updatedAt" = now() where id = ${data.userId}
+    `;
     await opened.sql`delete from "session" where "userId" = ${data.userId}`;
+    await writeAudit(opened.sql, opened.actorId, "user.password", "user", data.userId, force ? "temporary password" : "self");
     return { error: null };
   });
 

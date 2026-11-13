@@ -1,71 +1,40 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { DatabasePanel } from "@/components/admin/database-panel";
+import { DevicesPanel } from "@/components/admin/devices-panel";
+import { UsersPanel } from "@/components/admin/users-panel";
+import { adminProbe } from "@/lib/admin.functions";
+import { adminAudit } from "@/lib/admin/manage.functions";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import {
-  adminDrawing,
-  adminHome,
-  adminSetPassword,
-  adminUser,
-  type AdminDrawingView,
-  type AdminHome,
-  type AdminUserDetail,
-} from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/admin")({ component: AdminPage });
 
+type Tab = "users" | "devices" | "database" | "audit";
+
 function AdminPage() {
   const { user, isPending } = useCurrentUserState();
-  const [home, setHome] = useState<AdminHome | null>(null);
-  const [detail, setDetail] = useState<AdminUserDetail | null>(null);
-  const [drawing, setDrawing] = useState<AdminDrawingView | null>(null);
-  const [password, setPassword] = useState("");
-  const [passwordNote, setPasswordNote] = useState("");
+  const [admin, setAdmin] = useState<boolean | null>(null);
+  const [tab, setTab] = useState<Tab>("users");
+  const [audit, setAudit] = useState<Awaited<ReturnType<typeof adminAudit>> | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user?.id) return;
-    let cancelled = false;
-    adminHome()
-      .then((result) => {
-        if (!cancelled) setHome(result);
-      })
-      .catch(() => {
-        if (!cancelled) setError("The admin list could not be loaded.");
-      });
-    return () => {
-      cancelled = true;
-    };
+    void adminProbe()
+      .then((result) => setAdmin(result.admin))
+      .catch(() => setError("Admin access could not be checked."));
   }, [user?.id]);
 
-  async function openUser(userId: string) {
-    setError("");
-    setDrawing(null);
-    setPassword("");
-    setPasswordNote("");
-    setDetail(null);
-    try {
-      const next = await adminUser({ data: userId });
-      setDetail(next);
-      if (!next) setError("That account was not found.");
-    } catch {
-      setError("That account could not be loaded.");
-    }
-  }
+  useEffect(() => {
+    if (tab !== "audit" || !admin) return;
+    void adminAudit()
+      .then(setAudit)
+      .catch(() => setError("The audit log could not be loaded."));
+  }, [tab, admin]);
 
-  async function openDrawing(userId: string, drawingId: number) {
-    setError("");
-    try {
-      const next = await adminDrawing({ data: { userId, drawingId } });
-      setDrawing(next);
-      if (!next) setError("That drawing was not found.");
-    } catch {
-      setError("That drawing could not be loaded.");
-    }
-  }
-
-  if (isPending || (user && !home && !error)) {
+  if (isPending || (user && admin == null && !error)) {
     return (
       <AppShell>
         <div className="h-24 animate-pulse rounded-[var(--radius-card)] bg-line" />
@@ -77,210 +46,66 @@ function AdminPage() {
   return (
     <AppShell>
       <p className="text-xs font-semibold tracking-[0.22em] text-muted uppercase">Admin</p>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Every account</h1>
+      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Studio control</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted">
-        Read only. Drawings and library changes stay with the person who made them.
+        Accounts, device definitions, and the database. Every change is written to the audit log. The security model is in the
+        admin security note shipped with the app.
       </p>
       {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
-      {home && !home.admin ? (
+      {admin === false ? (
         <p className="mt-6 max-w-xl text-sm">
-          Signed in as {user.displayName || "this account"}
-          {user.primaryEmail ? ` (${user.primaryEmail})` : ""}. This page is for the Steven Marr account. To use a
-          different email, set <span className="font-medium">ADMIN_EMAILS</span> on the server to that address.
+          Signed in as {user.displayName || "this account"}. This page is limited to admin accounts.
         </p>
       ) : null}
-      {home?.admin && !detail ? (
-        <div className="mt-6 overflow-x-auto">
-          <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
-                <th className="py-2 pr-3 font-medium">Name</th>
-                <th className="py-2 pr-3 font-medium">Email</th>
-                <th className="py-2 pr-3 font-medium">Drawings</th>
-                <th className="py-2 pr-3 font-medium">Models</th>
-                <th className="py-2 pr-3 font-medium">Systems</th>
-                <th className="py-2 font-medium">Last drawing</th>
-              </tr>
-            </thead>
-            <tbody>
-              {home.users.map((row) => (
-                <tr key={row.id} className="border-b border-line">
-                  <td className="py-2 pr-3">
-                    <button type="button" className="font-semibold underline underline-offset-4" onClick={() => void openUser(row.id)}>
-                      {row.name || "Untitled"}
-                    </button>
-                    {row.email.toLowerCase() === home.you?.email.toLowerCase() ? (
-                      <span className="ml-2 text-xs text-muted">You</span>
-                    ) : null}
-                  </td>
-                  <td className="py-2 pr-3 text-muted">{row.email}</td>
-                  <td className="py-2 pr-3">{row.drawings}</td>
-                  <td className="py-2 pr-3">{row.models}</td>
-                  <td className="py-2 pr-3">{row.systems}</td>
-                  <td className="py-2 text-muted">{row.lastDrawing ? row.lastDrawing.slice(0, 16) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-      {detail && !drawing ? (
-        <section className="mt-6">
-          <button type="button" className="text-sm text-muted underline underline-offset-4" onClick={() => setDetail(null)}>
-            All accounts
-          </button>
-          <h2 className="mt-3 text-2xl font-semibold">{detail.user.name}</h2>
-          <p className="mt-1 text-sm text-muted">{detail.user.email}</p>
-          <form
-            className="mt-4 flex flex-wrap items-end gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setPasswordNote("");
-              setError("");
-              void adminSetPassword({ data: { userId: detail.user.id, password } })
-                .then((result) => {
-                  if (result.error) setError(result.error);
-                  else {
-                    setPassword("");
-                    setPasswordNote("Password updated. Their other sessions were signed out.");
-                  }
-                })
-                .catch(() => setError("The password could not be changed."));
-            }}
-          >
-            <label className="text-sm">
-              New password
-              <input
-                type="text"
-                autoComplete="off"
-                minLength={8}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="mt-1 block h-10 rounded-xl border border-line bg-panel px-3 text-ink outline-none"
-              />
-            </label>
-            <button type="submit" className="h-10 rounded-full bg-ink px-4 text-sm font-semibold text-paper">
-              Set password
-            </button>
-          </form>
-          {passwordNote ? <p className="mt-2 text-sm">{passwordNote}</p> : null}
-          {detail.studio?.companyName ? (
-            <p className="mt-2 text-sm">
-              {detail.studio.companyName}
-              {detail.studio.drawnBy ? ` · drawn by ${detail.studio.drawnBy}` : ""}
-              {detail.studio.phone ? ` · ${detail.studio.phone}` : ""}
-            </p>
-          ) : null}
-          <h3 className="mt-6 text-sm font-semibold tracking-wide text-muted uppercase">Drawings</h3>
-          {detail.drawings.length === 0 ? <p className="mt-2 text-sm">No drawings.</p> : null}
-          <ul className="mt-2 divide-y divide-line">
-            {detail.drawings.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2">
-                <button
-                  type="button"
-                  className="text-left font-semibold underline underline-offset-4"
-                  onClick={() => void openDrawing(detail.user.id, item.id)}
-                >
-                  {item.name}
-                </button>
-                <span className="text-xs text-muted">
-                  {item.nodes} boxes · {item.edges} cables
-                  {item.templateKey ? ` · ${item.templateKey}` : ""}
-                </span>
-              </li>
+      {admin ? (
+        <>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {(
+              [
+                ["users", "Accounts"],
+                ["devices", "Devices"],
+                ["database", "Database"],
+                ["audit", "Audit"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${tab === id ? "bg-ink text-paper" : "border border-line"}`}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
             ))}
-          </ul>
-          <h3 className="mt-6 text-sm font-semibold tracking-wide text-muted uppercase">Library</h3>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
-                  <th className="py-2 pr-3 font-medium">Type</th>
-                  <th className="py-2 pr-3 font-medium">Manufacturer</th>
-                  <th className="py-2 pr-3 font-medium">Model</th>
-                  <th className="py-2 pr-3 font-medium">Kind</th>
-                  <th className="py-2 font-medium">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.models.map((item) => (
-                  <tr key={item.id} className="border-b border-line">
-                    <td className="py-2 pr-3">{item.deviceType}</td>
-                    <td className="py-2 pr-3">{item.manufacturer}</td>
-                    <td className="py-2 pr-3 font-medium">{item.model}</td>
-                    <td className="py-2 pr-3 text-muted">{item.kind}</td>
-                    <td className="py-2 text-muted">{item.notes}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
-        </section>
-      ) : null}
-      {detail && drawing ? (
-        <section className="mt-6">
-          <button type="button" className="text-sm text-muted underline underline-offset-4" onClick={() => setDrawing(null)}>
-            {detail.user.name}
-          </button>
-          <h2 className="mt-3 text-2xl font-semibold">{drawing.name}</h2>
-          <p className="mt-1 text-sm text-muted">
-            {[drawing.title.event, drawing.title.location, drawing.title.date, drawing.title.drawnBy].filter(Boolean).join(" · ")}
-          </p>
-          <h3 className="mt-6 text-sm font-semibold tracking-wide text-muted uppercase">Gear</h3>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
-                  <th className="py-2 pr-3 font-medium">Unit</th>
-                  <th className="py-2 pr-3 font-medium">Type</th>
-                  <th className="py-2 pr-3 font-medium">Manufacturer</th>
-                  <th className="py-2 pr-3 font-medium">Model</th>
-                  <th className="py-2 pr-3 font-medium">IP</th>
-                  <th className="py-2 font-medium">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drawing.nodes.map((node, index) => (
-                  <tr key={`${node.unitId}-${index}`} className="border-b border-line">
-                    <td className="py-2 pr-3 font-medium">{node.unitId}</td>
-                    <td className="py-2 pr-3">{node.deviceType}</td>
-                    <td className="py-2 pr-3">{node.manufacturer}</td>
-                    <td className="py-2 pr-3">{node.model}</td>
-                    <td className="py-2 pr-3 text-muted">{node.ip}</td>
-                    <td className="py-2 text-muted">{node.notes}</td>
+          {tab === "users" ? <UsersPanel you={user.primaryEmail || ""} /> : null}
+          {tab === "devices" ? <DevicesPanel /> : null}
+          {tab === "database" ? <DatabasePanel /> : null}
+          {tab === "audit" ? (
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
+                    <th className="py-2 pr-3 font-medium">When</th>
+                    <th className="py-2 pr-3 font-medium">Who</th>
+                    <th className="py-2 pr-3 font-medium">Action</th>
+                    <th className="py-2 font-medium">Detail</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <h3 className="mt-6 text-sm font-semibold tracking-wide text-muted uppercase">Cables</h3>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
-                  <th className="py-2 pr-3 font-medium">From</th>
-                  <th className="py-2 pr-3 font-medium">Jack</th>
-                  <th className="py-2 pr-3 font-medium">Signal</th>
-                  <th className="py-2 pr-3 font-medium">To</th>
-                  <th className="py-2 pr-3 font-medium">Jack</th>
-                  <th className="py-2 font-medium">Cable</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drawing.cables.map((cable, index) => (
-                  <tr key={`${cable.fromUnit}-${cable.toUnit}-${index}`} className="border-b border-line">
-                    <td className="py-2 pr-3 font-medium">{cable.fromUnit}</td>
-                    <td className="py-2 pr-3">{cable.fromJack}</td>
-                    <td className="py-2 pr-3">{cable.signal}</td>
-                    <td className="py-2 pr-3 font-medium">{cable.toUnit}</td>
-                    <td className="py-2 pr-3">{cable.toJack}</td>
-                    <td className="py-2 text-muted">{cable.cable}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {(audit?.rows ?? []).map((row) => (
+                    <tr key={row.id} className="border-b border-line">
+                      <td className="py-2 pr-3 text-muted">{row.createdAt.slice(0, 19)}</td>
+                      <td className="py-2 pr-3">{row.actorEmail || row.actorId}</td>
+                      <td className="py-2 pr-3">{row.action}</td>
+                      <td className="py-2">{row.detail || `${row.targetType} ${row.targetId}`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </AppShell>
   );
