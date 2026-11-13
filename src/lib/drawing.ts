@@ -28,6 +28,8 @@ export type DrawingEdge = {
   notes: string;
   cableType?: string;
   throwdown?: string;
+  signalFormat?: string;
+  label?: string;
 };
 
 export type DrawingGroup = {
@@ -70,7 +72,13 @@ export function asDrawingFile(raw: unknown): DrawingFile {
       version: String(title.version ?? ""),
     },
     nodes: Array.isArray(file.nodes) ? file.nodes : [],
-    edges: Array.isArray(file.edges) ? file.edges : [],
+    edges: Array.isArray(file.edges)
+      ? file.edges.map((edge) => ({
+          ...edge,
+          signalFormat: String(edge.signalFormat ?? ""),
+          label: String(edge.label ?? ""),
+        }))
+      : [],
     groups: Array.isArray(file.groups) ? file.groups : [],
     cableStyle: file.cableStyle === "square" ? "square" : "curve",
   };

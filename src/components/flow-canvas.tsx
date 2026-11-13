@@ -30,6 +30,7 @@ import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
+import { connectionsToCsv, parsePatchDocument, patchDocument, validatePatch, type PatchConnection, type PatchPort } from "@/lib/patch/document";
 
 type EquipmentNodeData = {
   equipmentId: number;
@@ -46,7 +47,15 @@ type EquipmentNodeData = {
 };
 
 type EquipmentNode = Node<EquipmentNodeData, "equipment">;
-type CableData = { length: string; notes: string; signal: string; cableType: string; throwdown: string };
+type CableData = {
+  length: string;
+  notes: string;
+  signal: string;
+  cableType: string;
+  throwdown: string;
+  signalFormat?: string;
+  label?: string;
+};
 type CableEdge = Edge<CableData>;
 type ShowGroup = DrawingGroup;
 
@@ -215,6 +224,8 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
         signal,
         cableType: edge.cableType ?? "",
         throwdown: edge.throwdown ?? "",
+        signalFormat: edge.signalFormat ?? "",
+        label: edge.label ?? "",
       },
       label: formatCable(edge.cableType ?? "", edge.length ?? "", edge.throwdown ?? "") || undefined,
       labelStyle: { fill: "#f3efe6", fontSize: 11 },
@@ -257,6 +268,8 @@ function toFile(
       notes: edge.data?.notes ?? "",
       cableType: edge.data?.cableType ?? "",
       throwdown: edge.data?.throwdown ?? "",
+      signalFormat: edge.data?.signalFormat ?? "",
+      label: edge.data?.label ?? "",
     })),
     groups,
   };
@@ -264,6 +277,16 @@ function toFile(
 
 function nodeBox(node: EquipmentNode) {
   return gearNodeSize(node.data.pins, { ip: node.data.ip, notes: node.data.specialNotes });
+}
+
+function downloadText(filename: string, body: string, type: string) {
+  const blob = new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function downloadCsv(filename: string, rows: string[][]) {
@@ -1466,6 +1489,42 @@ export function FlowCanvas({
             onPatch={applyCableChange}
             onCable={applyCableSpec}
             onApplyCsv={applyCableFile}
+            issues={patchIssues(nodes, edges)}
+            patchJson={JSON.stringify(patchDocument(name, patchConnections(nodes, edges)), null, 2)}
+            patchCsv={connectionsToCsv(patchConnections(nodes, edges))}
+            onImportJson={(text) => {
+              let raw: unknown;
+              try {
+                raw = JSON.parse(text);
+              } catch {
+                setHint("That patch file is not JSON.");
+                return;
+              }
+              const parsed = parsePatchDocument(raw);
+              if (parsed.error || !parsed.document) {
+                setHint(parsed.error ?? "That patch file could not be read.");
+                return;
+              }
+              const byId = new Map(parsed.document.connections.map((connection) => [connection.id, connection]));
+              setEdges((current) =>
+                current.map((edge) => {
+                  const connection = byId.get(edge.id);
+                  if (!connection || !edge.data) return edge;
+                  return {
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      signalFormat: connection.signalFormat,
+                      label: connection.cableLabel,
+                      notes: connection.notes,
+                      length: connection.cableLength,
+                      cableType: connection.cableType,
+                    },
+                  };
+                }),
+              );
+              setHint(`Applied ${parsed.document.connections.length} connections from the patch file.`);
+            }}
             onClose={() => setSheet("draw")}
           />
         ) : null}
@@ -1599,6 +1658,42 @@ export function FlowCanvas({
       </div>
     </div>
   );
+}
+
+function patchConnections(nodes: EquipmentNode[], edges: CableEdge[]): PatchConnection[] {
+  return edges.map((edge) => {
+    const source = nodes.find((node) => node.id === edge.source);
+    const target = nodes.find((node) => node.id === edge.target);
+    const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
+    return {
+      id: edge.id,
+      sourceDevice: source?.data.unitId || edge.source,
+      sourcePort: edge.sourceHandle ?? "",
+      destinationDevice: target?.data.unitId || edge.target,
+      destinationPort: edge.targetHandle ?? "",
+      signalType: from?.signal || edge.data?.signal || "",
+      signalFormat: edge.data?.signalFormat ?? "",
+      cableType: edge.data?.cableType ?? "",
+      cableLength: edge.data?.length ?? "",
+      cableLabel: edge.data?.label ?? "",
+      notes: edge.data?.notes ?? "",
+    };
+  });
+}
+
+function patchIssues(nodes: EquipmentNode[], edges: CableEdge[]): string[] {
+  const ports: PatchPort[] = [];
+  for (const node of nodes) {
+    for (const pin of node.data.pins) {
+      ports.push({
+        deviceId: node.data.unitId || node.id,
+        portId: pin.id ?? "",
+        signal: pin.signal,
+        direction: pin.direction === "output" ? "output" : "input",
+      });
+    }
+  }
+  return validatePatch(patchConnections(nodes, edges), ports).map((issue) => issue.message);
 }
 
 function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
@@ -1752,6 +1847,10 @@ function ListSheet({
   onPatch,
   onCable,
   onApplyCsv,
+  onImportJson,
+  issues = [],
+  patchJson,
+  patchCsv,
 }: {
   kind: "patch" | "pull";
   title: DrawingTitle;
@@ -1765,6 +1864,10 @@ function ListSheet({
   onPatch?: (edgeId: string, field: PatchField, value: string) => void;
   onCable?: (edgeId: string, spec: { cableType: string; length: string; throwdown: string }) => void;
   onApplyCsv?: (text: string) => void;
+  onImportJson?: (text: string) => void;
+  issues?: string[];
+  patchJson?: string;
+  patchCsv?: string;
 }) {
   const header = rows[0] ?? [];
   const source = rows.slice(1);
@@ -1784,9 +1887,16 @@ function ListSheet({
           <h2 className="text-lg font-semibold">{kind === "patch" ? (focusLabel ? `Patch · ${focusLabel}` : "Patch") : "Pull list"}</h2>
           <p className="mt-1 max-w-xl text-sm text-muted">
             {kind === "patch"
-              ? "Read left to right. Change a unit or a jack and the cable moves. The last column stays blank until you assign a cable."
+              ? "Each cable is one connection: source port, destination port, signal, and cable. Warnings sit above the table."
               : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it. Click a column to sort."}
           </p>
+          {issues.length ? (
+            <ul className="mt-2 max-w-xl space-y-1 text-sm text-danger">
+              {issues.slice(0, 8).map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {kind === "patch" && onApplyCsv ? (
@@ -1817,6 +1927,40 @@ function ListSheet({
           >
             Download CSV
           </button>
+          {patchJson ? (
+            <button
+              type="button"
+              className="rounded-full border border-line px-4 py-2 text-sm"
+              onClick={() => downloadText(filename.replace(/\.csv$/, "") + ".json", patchJson, "application/json")}
+            >
+              Download JSON
+            </button>
+          ) : null}
+          {onImportJson ? (
+            <label className="cursor-pointer rounded-full border border-line px-4 py-2 text-sm">
+              Import JSON
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  void file.text().then((text) => onImportJson(text));
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+          {patchCsv ? (
+            <button
+              type="button"
+              className="rounded-full border border-line px-4 py-2 text-sm"
+              onClick={() => downloadText(filename.replace(/\.csv$/, "") + "-connections.csv", patchCsv, "text/csv")}
+            >
+              Connection CSV
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="mb-4 grid gap-2 sm:grid-cols-5">
