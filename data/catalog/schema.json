@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pvllc.local/catalog/schema.json",
+  "title": "PVLLC AV Device Catalog",
+  "description": "Machine-readable device catalog for an AV signal-flow diagram app. Nodes on a canvas have typed input/output ports used for patch sheets and wiring. Fields that are not confirmed from a cited source must be null or the string 'unknown' — never guessed. Port counts are omitted (count: null) when not confirmed.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "devices"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Catalog schema version. Device ids are stable across versions; fields may be added in later minor versions."
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "ISO-8601 timestamp (America/Chicago local with offset) when this file was written."
+    },
+    "source_notes": { "type": "string" },
+    "devices": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/device" }
+    }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low", "none"],
+      "description": "high = read from a manufacturer datasheet, tech-specs page or manual cited in sources; medium = manufacturer marketing page or clearly labelled rear-panel photo with a cited URL, or two independent reputable sources agreeing; low = reputable third-party listing only; none = identity known, I/O not captured."
+    },
+    "unknown_string": {
+      "description": "Use the literal 'unknown' or null when a value is not confirmed. Never invent a number or connector.",
+      "anyOf": [{ "type": "string", "enum": ["unknown"] }, { "type": "null" }]
+    },
+    "source": {
+      "type": "object",
+      "required": ["url", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string" },
+        "title": { "type": "string" },
+        "retrieved": { "type": ["string", "null"], "description": "Date the source was opened, YYYY-MM-DD, or null if taken from a previously dated local copy." },
+        "kind": {
+          "type": "string",
+          "enum": ["tech-specs", "datasheet-pdf", "manual-pdf", "product-page", "legacy-archive", "companion-module", "local-manual", "sdk-manual", "press", "other"]
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "port": {
+      "type": "object",
+      "required": ["id", "name", "direction", "signal_type", "connector", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable port-group id within the device, e.g. 'sdi-in', 'hdmi-out-mv', 'ref-in'. Numbered groups when connectors differ."
+        },
+        "name": { "type": "string", "description": "Label as it should appear on a node / patch sheet, e.g. '12G-SDI In'." },
+        "direction": { "type": "string", "enum": ["in", "out", "bidirectional"] },
+        "signal_type": {
+          "type": "string",
+          "enum": [
+            "sdi-sd", "sdi-hd", "sdi-3g", "sdi-6g", "sdi-12g", "sdi-unspecified",
+            "hdmi", "displayport", "dvi", "vga",
+            "fiber-sfp", "optical-sfp", "sfp-cage",
+            "ethernet", "control-ethernet",
+            "dante", "ndi", "st2110", "sdi-over-ip",
+            "genlock", "ref", "framelock", "wordclock",
+            "timecode-ltc", "timecode-vitc",
+            "audio-analog", "audio-aes", "audio-madi", "audio-embedded",
+            "usb", "usb-webcam", "thunderbolt",
+            "rs-232", "rs-422", "rs-485",
+            "gpi", "gpo", "gpio", "tally",
+            "power", "other", "unknown"
+          ]
+        },
+        "connector": {
+          "type": "string",
+          "enum": [
+            "bnc", "mini-bnc", "micro-bnc", "hd-bnc",
+            "hdmi-a", "hdmi-b", "mini-hdmi", "micro-hdmi",
+            "displayport", "mini-displayport",
+            "dvi-d", "dvi-i", "dvi-a", "vga-hd15",
+            "rj45", "ethercon",
+            "lc", "sc", "opticalcon", "opticalcon-duo", "opticalcon-quad", "smpte-304", "st-connector",
+            "sfp", "sfp-plus", "qsfp", "qsfp28", "sfp28",
+            "xlr-3", "xlr-4", "xlr-5", "combo-xlr-trs",
+            "trs-6.35", "trs-3.5", "ts-6.35", "rca", "phoenix", "terminal-block",
+            "db9", "db25", "de9", "rj11", "rj12",
+            "usb-c", "usb-a", "usb-b", "usb-mini-b", "usb-micro-b",
+            "thunderbolt", "thunderbolt3", "thunderbolt4", "thunderbolt5",
+            "iec-c14", "iec-c13", "iec-c20", "powercon", "powercon-true1", "xlr-4-power", "dc-barrel", "veam",
+            "mco-5", "din", "tocs", "other", "unknown"
+          ]
+        },
+        "count": {
+          "description": "Number of physical connectors in this group. Must be a positive integer from a cited source, or null if unknown. Never invent.",
+          "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
+        "max_format": {
+          "description": "Highest advertised video/audio format, e.g. '2160p60 12-bit', 'HDMI 2.0 4K60', '32ch MADI 96 kHz'. 'unknown' or null if not stated.",
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "convertible": {
+          "type": "boolean",
+          "description": "True when the same physical connectors can be re-allocated (e.g. 4x 3G = 1x 12G, or SDI/HDMI combo). Default false."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "True when this group is an option card, license, or factory option — not present on every unit."
+        },
+        "hot_pluggable_card": { "type": ["string", "null"], "description": "Slot or option-card name if modular, e.g. 'Input slot 1-8', 'Event Master 4K input card'." },
+        "control_protocols": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Protocols this port speaks, if it is a control or hybrid port. Device-level protocols also live on the device."
+        },
+        "notes": { "type": "string" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": ["string", "null"], "description": "e.g. '100-240 VAC 50/60 Hz', '12V DC', 'PoE+', 'V-mount'." },
+        "connector": { "type": ["string", "null"] },
+        "consumption_w": { "description": "Watts, or null if unknown.", "anyOf": [{ "type": "number" }, { "type": "null" }] },
+        "redundant": { "description": "true/false if known, null if unknown.", "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+        "notes": { "type": "string" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "device": {
+      "type": "object",
+      "required": ["id", "manufacturer", "manufacturer_id", "model", "category", "status", "ports", "sources", "port_data_confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$",
+          "description": "Stable lowercase dotted id, manufacturer_id first, then a kebab-case model slug. Example: 'blackmagic.atem-constellation-4me-4k'. Do not change once published; add a new id and list the old one in aliases if a rename is required."
+        },
+        "manufacturer": { "type": "string", "description": "Display name, e.g. 'Blackmagic Design'." },
+        "manufacturer_id": {
+          "type": "string",
+          "enum": [
+            "blackmagic", "barco", "aja", "grassvalley", "sony", "panasonic",
+            "ross", "analogway", "christie", "vista", "pixelhue", "roe", "brompton",
+            "other"
+          ]
+        },
+        "model": { "type": "string", "description": "Official model name as sold, e.g. 'ATEM Constellation 4 M/E 4K'." },
+        "product_line": { "type": ["string", "null"], "description": "Family, e.g. 'ATEM Constellation', 'LivePremier', 'Tessera', 'Carbonite Ultra'." },
+        "sku": { "type": ["string", "null"], "description": "Manufacturer SKU / part number if known." },
+        "category": {
+          "type": "string",
+          "enum": [
+            "switcher", "router", "converter", "recorder", "player", "recorder-player",
+            "camera", "ptz-camera", "studio-camera", "cinema-camera", "camcorder",
+            "image-processor", "screen-management", "led-processor", "led-panel",
+            "projector", "multiviewer", "frame-sync", "capture", "streaming",
+            "monitor", "control-panel", "ccu", "sync-generator", "tally",
+            "keyer", "media-server", "audio-mixer", "audio-interface",
+            "intercom", "other"
+          ]
+        },
+        "status": { "type": "string", "enum": ["current", "discontinued", "unknown"] },
+        "form_factor": { "type": ["string", "null"], "description": "e.g. '1RU', '4RU chassis', 'desktop', 'handheld', 'PTZ dome', 'card (openGear)', 'PCIe card'." },
+        "rack_units": { "description": "Numeric RU height, or null.", "anyOf": [{ "type": "number" }, { "type": "null" }] },
+        "power": { "anyOf": [{ "$ref": "#/$defs/power" }, { "type": "null" }] },
+        "ports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/port" },
+          "description": "Physical connector groups. Empty array with port_data_confidence 'none' when I/O has not been confirmed."
+        },
+        "control_protocols": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Device-level control protocols, e.g. 'ATEM', 'Videohub', 'HTTP', 'TCP', 'UDP', 'OSC', 'Telnet', 'VISCA', 'Panasonic AW', 'RossTalk', 'Barco E2 JSON-RPC', 'AWJ', 'TSL UMD'."
+        },
+        "companion_modules": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Bitfocus Companion module ids from bitfocus.io/connections, e.g. 'bmd-atem'."
+        },
+        "aliases": { "type": "array", "items": { "type": "string" }, "description": "Other names, former names, or previous catalog ids." },
+        "variants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Closely related SKUs that share this node's ports (or are called out in notes), e.g. region codes."
+        },
+        "modular": {
+          "type": "boolean",
+          "description": "True when I/O depends on installed cards. Stock/factory configuration is listed in ports when known; option cards are optional:true."
+        },
+        "notes": { "type": "string" },
+        "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/source" } },
+        "port_data_confidence": { "$ref": "#/$defs/confidence" }
+      }
+    }
+  }
+}
