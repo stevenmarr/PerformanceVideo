@@ -35,7 +35,9 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
-import { ensureDbReady, getPglite } from "../db";
+import { ensureDbReady, getPglite, getSql } from "../db";
+import { ensureDesignAdmin } from "./ensure-admin";
+import { fromSql } from "../queryable";
 import { emailAndPassword } from "./password-reset.server";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
@@ -44,7 +46,7 @@ import {
   GROK_ISSUER_DEFAULT,
   PREVIEW_ALLOWED_HOSTS,
   PREVIEW_CLIENT_ID,
-  PREVIEW_CLIENT_SECRET,
+  previewClientSecret,
 } from "./preview";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
@@ -79,11 +81,15 @@ const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 // for any `*.grok-sandbox.com` callback (see `./preview`).
 const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
 const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
-const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
+const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? previewClientSecret();
 
-/** True when federated sign-in is active (real auth is enforced). */
+/**
+ * Email/password is this app's sign-in. The Grok broker client is optional and
+ * only needed for federated sign-in, so a missing preview secret must not turn
+ * local accounts off.
+ */
 export const authConfigured =
-  !authDisabled && Boolean(grokClientId && grokClientSecret);
+  !authDisabled && (Boolean(grokClientId && grokClientSecret) || Boolean(emailAndPassword));
 
 // This app's own Better Auth origin. When deployed the deployer injects the
 // public URL. In the sandbox live preview there's no fixed URL (each preview gets
@@ -214,6 +220,26 @@ export const auth = betterAuth({
   // Local email/password — toggled only via `./email-password` (not a plugin).
   ...(emailAndPassword ? { emailAndPassword } : {}),
 
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          try {
+            const sql = await getSql();
+            const rows = await sql<{ disabled: boolean }>`
+              select coalesce(disabled, false) as disabled from "user" where id = ${session.userId}
+            `;
+            if (rows[0]?.disabled) return false;
+          } catch (error) {
+            console.error("[auth] could not check whether the account is disabled", error);
+            return false;
+          }
+          return { data: session };
+        },
+      },
+    },
+  },
+
   // `__Host-` prefixed cookies: the browser REFUSES any same-named cookie that
   // carries a `Domain` attribute, so a sibling `*.grok.me` app cannot "toss" a
   // `Domain=.grok.me` session cookie onto this app. `__Host-` requires Secure +
@@ -255,6 +281,17 @@ export const auth = betterAuth({
 
 export function readSessionToken(): string | null {
   return getCookie(SESSION_TOKEN_COOKIE) ?? null;
+}
+
+if (typeof window === "undefined") {
+  void (async () => {
+    try {
+      await ensureDbReady();
+      await ensureDesignAdmin(fromSql(await getSql()), process.env);
+    } catch (error) {
+      console.error("[seed] admin ensure failed", error);
+    }
+  })();
 }
 
 // Re-exported for convenience; the array lives in the dependency-free

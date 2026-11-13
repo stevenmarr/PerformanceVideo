@@ -1,7 +1,8 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { accountStatus } from "@/lib/auth/account.functions";
 import { adminProbe } from "@/lib/admin.functions";
 
 const links = [
@@ -14,9 +15,23 @@ const links = [
 export function AppShell({ children, bleed = false }: { children: ReactNode; bleed?: boolean }) {
   const { user, isPending } = useCurrentUserState();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [admin, setAdmin] = useState(false);
   const nav = admin ? [...links, { to: "/admin" as const, label: "Admin" }] : links;
+
+  useEffect(() => {
+    if (!user?.id || pathname === "/account") return;
+    let cancelled = false;
+    accountStatus()
+      .then((status) => {
+        if (!cancelled && status.mustChangePassword) void navigate({ to: "/account" });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, pathname, navigate]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -82,7 +97,12 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
             {isPending ? (
               <div className="h-8 w-8 animate-pulse rounded-full bg-line" />
             ) : user ? (
-              <UserButton />
+              <div className="flex items-center gap-2">
+                <Link to="/account" className="rounded-full px-3 py-2 text-sm text-muted hover:text-ink">
+                  Password
+                </Link>
+                <UserButton />
+              </div>
             ) : (
               <Link to="/login" className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper">
                 Sign in

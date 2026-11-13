@@ -219,7 +219,7 @@ async function seedCorporateGear(userId: string, already: number) {
   }
 }
 
-async function readCatalog(userId: string): Promise<Catalog> {
+export async function readCatalog(userId: string): Promise<Catalog> {
   const sql = await getSql();
   const deviceTypes = await sql<DeviceTypeRow>`
     select id, name, color from device_types

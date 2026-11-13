@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { publicHref } from "@/lib/preview-path-prefix";
+import { requestPasswordReset, resolveLoginIdentifier } from "@/lib/auth/account.functions";
 import { authClient, authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -28,12 +29,8 @@ function Login() {
     setPending(true);
     try {
       if (mode === "forgot") {
-        const result = await authClient.requestPasswordReset({
-          email: email.trim(),
-          redirectTo: `${window.location.origin}${publicHref("/reset-password")}`,
-        });
-        if (result.error) throw new Error(result.error.message ?? "Could not start a reset.");
-        setNotice("If that email has an account, a reset link is on its way. It expires in one hour.");
+        const result = await requestPasswordReset({ data: email.trim() });
+        setNotice(result.message);
         return;
       }
       if (mode === "up") {
@@ -45,12 +42,18 @@ function Login() {
         });
         if (result.error) throw new Error(result.error.message ?? "Could not create the account.");
       } else {
+        const identifier = email.trim();
+        const resolved = identifier.includes("@") ? { email: identifier } : await resolveLoginIdentifier({ data: identifier });
+        if (!resolved.email.includes("@")) {
+          setError("The email or password is wrong.");
+          return;
+        }
         const result = await authClient.signIn.email({
-          email: email.trim(),
+          email: resolved.email,
           password,
           callbackURL: "/",
         });
-        if (result.error) throw new Error(result.error.message ?? "Could not sign in.");
+        if (result.error) throw new Error("The email or password is wrong.");
       }
       window.location.href = publicHref("/");
     } catch (err) {
@@ -78,7 +81,13 @@ function Login() {
               {mode === "up" ? (
                 <Field label="Name" value={name} onChange={setName} autoComplete="name" />
               ) : null}
-              <Field label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" />
+              <Field
+                label={mode === "forgot" ? "Email" : "Email or username"}
+                value={email}
+                onChange={setEmail}
+                type={mode === "forgot" ? "email" : "text"}
+                autoComplete="username"
+              />
               {mode === "forgot" ? null : (
                 <Field
                   label="Password"

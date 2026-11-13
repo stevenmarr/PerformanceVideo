@@ -291,6 +291,7 @@ export function FlowCanvas({
   onCreate,
   onDelete,
   onLibraryChange,
+  readOnly = false,
 }: {
   catalog: Catalog;
   drawing: { id: number | null; name: string; graph: DrawingFile };
@@ -300,6 +301,7 @@ export function FlowCanvas({
   onCreate: () => void;
   onDelete: (id: number) => Promise<void>;
   onLibraryChange: () => Promise<void>;
+  readOnly?: boolean;
 }) {
   const seeded = hydrate(drawing.graph, catalog);
   const [nodes, setNodes, onNodesChange] = useNodesState<EquipmentNode>(seeded.nodes);
@@ -476,6 +478,7 @@ export function FlowCanvas({
 
   const removeIds = useCallback(
     (nodeIds: string[], edgeIds: string[]) => {
+      if (readOnly) return;
       const doomed = new Set(nodeIds);
       const edgeDoomed = new Set(edgeIds);
       if (doomed.size === 0 && edgeDoomed.size === 0) {
@@ -489,7 +492,7 @@ export function FlowCanvas({
       setMenu(null);
       setHint("Removed from this drawing only. The library model stays.");
     },
-    [setEdges, setNodes],
+    [readOnly, setEdges, setNodes],
   );
 
   const applySelection = useCallback(
@@ -778,6 +781,10 @@ export function FlowCanvas({
   }
 
   async function save() {
+    if (readOnly) {
+      setHint("This drawing is open read-only.");
+      return;
+    }
     if (inside) {
       const row = catalog.equipment.find((item) => item.id === inside.equipmentId);
       const previous = parseSystemGraph(row?.graphJson);
@@ -1086,12 +1093,18 @@ export function FlowCanvas({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
-              <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
-                Save
-              </button>
-              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
-                New
-              </button>
+              {readOnly ? (
+                <span className="shrink-0 rounded-full border border-line px-4 py-2 text-sm">Read only</span>
+              ) : (
+                <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
+                  Save
+                </button>
+              )}
+              {readOnly ? null : (
+                <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
+                  New
+                </button>
+              )}
               <button
                 type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${gearBar ? "bg-ink text-paper" : "border border-line bg-panel"}`}
@@ -1273,9 +1286,18 @@ export function FlowCanvas({
             colorMode="dark"
             nodes={nodes}
             edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
+            nodesDraggable={!readOnly}
+            nodesConnectable={!readOnly}
+            edgesReconnectable={!readOnly}
+            onNodesChange={(changes) =>
+              onNodesChange(
+                readOnly ? changes.filter((change) => change.type === "select" || change.type === "dimensions") : changes,
+              )
+            }
+            onEdgesChange={(changes) =>
+              onEdgesChange(readOnly ? changes.filter((change) => change.type === "select") : changes)
+            }
+            onConnect={readOnly ? undefined : onConnect}
             isValidConnection={isValidConnection}
             nodeTypes={nodeTypes}
             connectionLineType={cableStyle === "square" ? ConnectionLineType.Step : ConnectionLineType.Bezier}
@@ -1293,6 +1315,7 @@ export function FlowCanvas({
             }}
             onDrop={(event) => {
               event.preventDefault();
+              if (readOnly) return;
               const id = Number(event.dataTransfer.getData("text/gear-id"));
               const item = catalog.equipment.find((row) => row.id === id);
               const flow = flowRef.current;
@@ -1508,7 +1531,7 @@ export function FlowCanvas({
             onClose={() => setMenu(null)}
           />
         ) : null}
-        {drawingId != null ? (
+        {drawingId != null && !readOnly ? (
           <div className="absolute right-3 bottom-3 z-30">
             {confirmDelete ? (
               <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 text-sm shadow-sm">
