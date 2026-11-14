@@ -200,26 +200,84 @@ function separate(plans: Plan[], boxes: RouteBox[]): void {
   }
 }
 
+function buildPlan(end: RouteEnd, sourceLane: number, targetLane: number): Plan {
+  const gap = end.x2 - end.x1;
+  const roomy = gap > STUB * 3;
+  const leaveX = roomy ? end.x1 + STUB + sourceLane * LANE : end.x1;
+  const approachX = roomy ? end.x2 - STUB - targetLane * LANE : end.x2;
+  return {
+    end,
+    sourceLane,
+    targetLane,
+    leaveX,
+    approachX,
+    bendX: Math.round((leaveX + approachX) / 2) + sourceLane * LANE,
+    outY: end.y1 + sourceLane * LANE,
+    inY: end.y2 + targetLane * LANE,
+  };
+}
+
+function laneAt(existing: RoutePoint[][], x: number, y: number, atStart: boolean): number {
+  let count = 0;
+  for (const points of existing) {
+    const point = atStart ? points[0] : points[points.length - 1];
+    if (point && Math.abs(point.x - x) < 1 && Math.abs(point.y - y) < 1) count += 1;
+  }
+  return count;
+}
+
+function nudgeOffExisting(plan: Plan, existing: RoutePoint[][]): boolean {
+  const verticals = new Map<number, { y1: number; y2: number }[]>();
+  const horizontals = new Map<number, { x1: number; x2: number }[]>();
+  for (const points of existing) {
+    for (let index = 1; index < points.length; index += 1) {
+      const prev = points[index - 1];
+      const point = points[index];
+      if (!prev || !point) continue;
+      if (prev.x === point.x) {
+        const key = Math.round(prev.x / LANE);
+        const list = verticals.get(key) ?? [];
+        list.push({ y1: prev.y, y2: point.y });
+        verticals.set(key, list);
+      } else if (prev.y === point.y) {
+        const key = Math.round(prev.y / LANE);
+        const list = horizontals.get(key) ?? [];
+        list.push({ x1: prev.x, x2: point.x });
+        horizontals.set(key, list);
+      }
+    }
+  }
+  let moved = false;
+  const points = drawnPoints(plan);
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1];
+    const point = points[index];
+    if (!prev || !point) continue;
+    if (prev.x === point.x) {
+      const list = verticals.get(Math.round(prev.x / LANE)) ?? [];
+      const hit = list.some((other) => rangesOverlap(prev.y, point.y, other.y1, other.y2));
+      if (!hit) continue;
+      if (Math.abs(prev.x - plan.bendX) < 1) plan.bendX += LANE;
+      else if (Math.abs(prev.x - plan.approachX) < 1) plan.approachX -= LANE;
+      else plan.leaveX += LANE;
+      moved = true;
+    } else if (prev.y === point.y && Math.abs(point.x - prev.x) > STUB) {
+      const list = horizontals.get(Math.round(prev.y / LANE)) ?? [];
+      const hit = list.some((other) => Math.abs(other.x2 - other.x1) > STUB && rangesOverlap(prev.x, point.x, other.x1, other.x2));
+      if (!hit) continue;
+      plan.outY += LANE;
+      plan.inY += LANE;
+      moved = true;
+    }
+  }
+  return moved;
+}
+
 export function routeEdges(boxes: RouteBox[], ends: RouteEnd[]): Map<string, RoutePoint[]> {
   const sourceLanes = laneOf(ends, "source");
   const targetLanes = laneOf(ends, "target");
   const plans = ends.map((end) => {
-    const sourceLane = sourceLanes.get(end.edgeId) ?? 0;
-    const targetLane = targetLanes.get(end.edgeId) ?? 0;
-    const gap = end.x2 - end.x1;
-    const roomy = gap > STUB * 3;
-    const leaveX = roomy ? end.x1 + STUB + sourceLane * LANE : end.x1;
-    const approachX = roomy ? end.x2 - STUB - targetLane * LANE : end.x2;
-    const plan: Plan = {
-      end,
-      sourceLane,
-      targetLane,
-      leaveX,
-      approachX,
-      bendX: Math.round((leaveX + approachX) / 2) + sourceLane * LANE,
-      outY: end.y1 + sourceLane * LANE,
-      inY: end.y2 + targetLane * LANE,
-    };
+    const plan = buildPlan(end, sourceLanes.get(end.edgeId) ?? 0, targetLanes.get(end.edgeId) ?? 0);
     dodge(plan, boxes);
     return plan;
   });
@@ -227,4 +285,15 @@ export function routeEdges(boxes: RouteBox[], ends: RouteEnd[]): Map<string, Rou
   const routes = new Map<string, RoutePoint[]>();
   for (const plan of plans) routes.set(plan.end.edgeId, drawnPoints(plan));
   return routes;
+}
+
+/** One in-progress cable. Same bends as routeEdges, without re-routing the drawing. */
+export function previewRoute(boxes: RouteBox[], existing: RoutePoint[][], end: RouteEnd): RoutePoint[] {
+  const plan = buildPlan(end, laneAt(existing, end.x1, end.y1, true), laneAt(existing, end.x2, end.y2, false));
+  dodge(plan, boxes);
+  for (let pass = 0; pass < 4; pass += 1) {
+    if (!nudgeOffExisting(plan, existing)) break;
+    dodge(plan, boxes);
+  }
+  return drawnPoints(plan);
 }

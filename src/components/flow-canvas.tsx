@@ -32,7 +32,7 @@ import { SignalBoard } from "@/components/signal-board";
 import { deviceTiming } from "@/lib/signal/propagate";
 import { GearNodeCard, gearNodeSize, jackOffset } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
-import { OrthogonalCable, RouteContext } from "@/components/orthogonal-edge";
+import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } from "@/components/orthogonal-edge";
 import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
@@ -417,13 +417,17 @@ export function FlowCanvas({
   const [cableStyle, setCableStyle] = useState<CableStyle>(drawing.graph.cableStyle);
   const [measuredJacks, setMeasuredJacks] = useState<JackPoint[]>([]);
   const onMeasuredJacks = useCallback((jacks: JackPoint[]) => setMeasuredJacks(jacks), []);
+  const boxes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const size = nodeBox(node);
+        return { id: node.id, x: node.position.x, y: node.position.y, w: size.width, h: size.height };
+      }),
+    [nodes],
+  );
   const routes = useMemo(() => {
     if (cableStyle !== "square") return new Map<string, { x: number; y: number }[]>();
     const jackAt = new Map(measuredJacks.map((jack) => [jack.key, jack]));
-    const boxes = nodes.map((node) => {
-      const size = nodeBox(node);
-      return { id: node.id, x: node.position.x, y: node.position.y, w: size.width, h: size.height };
-    });
     const byId = new Map(nodes.map((node) => [node.id, node]));
     return routeEdges(
       boxes,
@@ -445,7 +449,7 @@ export function FlowCanvas({
         }];
       }),
     );
-  }, [cableStyle, edges, measuredJacks, nodes]);
+  }, [boxes, cableStyle, edges, measuredJacks, nodes]);
   const [sheet, setSheet] = useState<"draw" | "patch" | "pull">("draw");
   const [patchFocus, setPatchFocus] = useState<{ label: string; nodeIds: string[] } | null>(null);
   const [patchPop, setPatchPop] = useState<{ x: number; y: number; label: string; nodeIds: string[]; canRemove: boolean } | null>(null);
@@ -1517,6 +1521,7 @@ export function FlowCanvas({
         ) : null}
         <div className="absolute inset-0" onPointerDownCapture={onCanvasPointerDown} onClickCapture={onCanvasClickCapture}>
           <RouteContext.Provider value={routes}>
+          <RouteBoxContext.Provider value={boxes}>
           <ReactFlow
             edgeTypes={edgeTypes}
             colorMode="dark"
@@ -1541,6 +1546,7 @@ export function FlowCanvas({
             isValidConnection={isValidConnection}
             nodeTypes={nodeTypes}
             connectionLineType={cableStyle === "square" ? ConnectionLineType.Step : ConnectionLineType.Bezier}
+            connectionLineComponent={cableStyle === "square" ? JackConnectionLine : undefined}
             onNodeDoubleClick={(_, node) => openInside(node)}
             onInit={(instance) => {
               flowRef.current = instance;
@@ -1666,6 +1672,7 @@ export function FlowCanvas({
               ) : null}
             </ViewportPortal>
           </ReactFlow>
+          </RouteBoxContext.Provider>
           </RouteContext.Provider>
         </div>
         {sheet !== "draw" ? (

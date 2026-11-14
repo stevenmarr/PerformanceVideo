@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isOrthogonal, routeEdges, segmentHitsBox, type RouteBox, type RouteEnd, type RoutePoint } from "./orthogonal.ts";
+import { isOrthogonal, previewRoute, routeEdges, segmentHitsBox, type RouteBox, type RouteEnd, type RoutePoint } from "./orthogonal.ts";
 
 function misses(points: RoutePoint[], box: RouteBox): boolean {
   for (let index = 1; index < points.length; index += 1) {
@@ -106,5 +106,47 @@ describe("orthogonal routing", () => {
     assert.equal(sharesARun(first, second), false);
     assert.equal(misses(first, boxes[0] as RouteBox), true);
     assert.equal(misses(first, boxes[1] as RouteBox), true);
+  });
+
+  it("previews the same route as a dropped cable and stays quick on a large drawing", () => {
+    const end: RouteEnd = { edgeId: "preview", sourceId: "a", targetId: "b", x1: 80, y1: 40, x2: 400, y2: 72 };
+    const boxes: RouteBox[] = [
+      { id: "a", x: 0, y: 0, w: 80, h: 120 },
+      { id: "b", x: 400, y: 0, w: 80, h: 120 },
+      { id: "block", x: 180, y: 0, w: 80, h: 80 },
+    ];
+    const preview = previewRoute(boxes, [], end);
+    assert.deepEqual(preview, routeEdges(boxes, [end]).get("preview"));
+    assert.deepEqual(preview[0], { x: 80, y: 40 });
+    assert.deepEqual(preview[preview.length - 1], { x: 400, y: 72 });
+    assert.equal(misses(preview, boxes[2] as RouteBox), true);
+    const taken = previewRoute(boxes, [preview], { ...end, edgeId: "next", y1: 40, y2: 72 });
+    assert.notDeepEqual(taken, preview);
+    assert.deepEqual(taken[0], { x: 80, y: 40 });
+    assert.deepEqual(taken[taken.length - 1], { x: 400, y: 72 });
+
+    const many: RouteBox[] = [];
+    const existing: RoutePoint[][] = [];
+    for (let index = 0; index < 400; index += 1) {
+      many.push({ id: `n${index}`, x: (index % 20) * 320, y: Math.floor(index / 20) * 200, w: 256, h: 140 });
+      existing.push([
+        { x: (index % 20) * 320 + 256, y: Math.floor(index / 20) * 200 + 40 },
+        { x: (index % 20) * 320 + 400, y: Math.floor(index / 20) * 200 + 40 },
+      ]);
+    }
+    const started = performance.now();
+    for (let step = 0; step < 40; step += 1) {
+      previewRoute(many, existing, {
+        edgeId: "preview",
+        sourceId: "n0",
+        targetId: "pointer",
+        x1: 256,
+        y1: 40,
+        x2: 500 + step * 16,
+        y2: 80,
+      });
+    }
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 80, `preview took ${elapsed.toFixed(1)}ms`);
   });
 });
