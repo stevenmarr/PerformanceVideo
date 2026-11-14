@@ -28,7 +28,8 @@ describe("datasheet port overlay", () => {
       assert.equal(ALLOWED.has(device.manufacturer_id), true, patch.id);
       assert.ok(patch.sources.every((source) => typeof source.url === "string" && source.url.startsWith("http")));
       for (const port of patch.ports) {
-        assert.equal(Number.isInteger(port.count) && (port.count ?? 0) >= 1, true, `${patch.id} ${port.id}`);
+        if (port.count == null) continue;
+        assert.equal(Number.isInteger(port.count) && port.count >= 1, true, `${patch.id} ${port.id}`);
       }
     }
     const patched = applyDatasheetPorts(catalog.devices, datasheetPortOverlay) as Device[];
@@ -58,9 +59,22 @@ describe("datasheet port overlay", () => {
     const ldx = must("grassvalley.ldx-150");
     assert.equal(count(ldx, "bnc-a-e"), 5);
     assert.equal(ldx.ports.find((port) => port.id === "bnc-a-e")?.direction, "bidirectional");
-    const untouched = must("barco.event-master-ex");
-    assert.equal(untouched.port_data_confidence, "none");
-    assert.deepEqual(untouched.ports, []);
+    const ex = must("barco.event-master-ex");
+    assert.equal(ex.port_data_confidence, "medium");
+    assert.equal(count(ex, "ref-in"), 1);
+    assert.equal(count(ex, "video-in"), null);
+    const e2jr = must("barco.event-master-e2-jr");
+    assert.equal(count(e2jr, "hdmi-in"), 6);
+    assert.equal(count(e2jr, "sdi-out"), 4);
+    const imagepro = must("barco.imagepro-4k");
+    assert.equal(count(imagepro, "sdi-in"), 4);
+    assert.equal(count(imagepro, "sdi-out"), 4);
+    const s4 = must("brompton.tessera-s4");
+    assert.equal(s4.ports.some((port) => port.signal_type === "hdmi"), false);
+    assert.equal(count(s4, "eth-1g"), 4);
+    assert.equal(count(must("panasonic.av-uhs500"), "sdi-in"), 8);
+    assert.equal(count(must("sony.xvs-g1"), "sdi-out"), 12);
+    assert.equal(count(must("panasonic.kairos"), "sdi"), null);
     const schema = JSON.parse(await readFile(new URL("../../../data/catalog/schema.json", import.meta.url), "utf8"));
     const ajv = new Ajv2020({ allErrors: true, strict: false });
     const validate = ajv.compile(schema);
@@ -76,5 +90,32 @@ describe("datasheet port overlay", () => {
     assert.ok(e2row);
     assert.equal(e2row.portsUnverified, false);
     assert.equal(JSON.parse(e2row.portsJson).find((port: Port) => port.id === "dp-in").count, 12);
+  });
+
+  it("adds the original E2 and keeps card-dependent counts empty", async () => {
+    const { datasheetExtraDevices } = await import("../../../scripts/datasheet-ports.mjs");
+    const catalog = JSON.parse(await readFile(new URL("../../../data/catalog/devices.json", import.meta.url), "utf8")) as {
+      devices: Device[];
+    };
+    const patched = applyDatasheetPorts(catalog.devices, datasheetPortOverlay, datasheetExtraDevices) as Device[];
+    const original = patched.find((device) => device.id === "barco.event-master-e2-original");
+    const gen2 = patched.find((device) => device.id === "barco.event-master-e2");
+    assert.ok(original);
+    assert.ok(gen2);
+    assert.equal(original.ports.find((port) => port.id === "hdmi-in")?.count, 10);
+    assert.equal(gen2.ports.find((port) => port.id === "hdmi-in")?.count, 12);
+    const ex = patched.find((device) => device.id === "barco.event-master-ex");
+    assert.equal(ex?.ports.find((port) => port.id === "video-in")?.count, null);
+    assert.equal(patched.find((device) => device.id === "brompton.tessera-xd")?.ports.find((port) => port.id === "eth-1g")?.count, 10);
+    assert.equal(patched.find((device) => device.id === "panasonic.av-uhs500")?.ports.find((port) => port.id === "sdi-in")?.count, 8);
+    assert.equal(patched.find((device) => device.id === "panasonic.kairos")?.ports.find((port) => port.id === "sdi")?.count, null);
+    assert.equal(patched.find((device) => device.id === "sony.xvs-g1")?.ports.find((port) => port.id === "sdi-in")?.count, 24);
+    const panel = patched.find((device) => device.id === "roe.black-pearl");
+    assert.equal(panel?.port_data_confidence, "none");
+    assert.deepEqual(panel?.ports, []);
+    const schema = JSON.parse(await readFile(new URL("../../../data/catalog/schema.json", import.meta.url), "utf8"));
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    const validate = ajv.compile(schema);
+    assert.equal(validate({ ...catalog, devices: [original] }), true, ajv.errorsText(validate.errors, { separator: "\n" }).slice(0, 500));
   });
 });
