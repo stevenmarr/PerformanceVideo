@@ -22,6 +22,52 @@ function source(url, title, notes) {
   return { url, title, retrieved: "2026-11-14", kind: "datasheet-pdf", notes };
 }
 
+const xvsGuide = {
+  url: "https://www.sony.com/electronics/support/res/manuals/5013/ac0fcd23e79e1fe9ad1e3707c87879a1/50135021M.pdf",
+  title: "Sony XVS-9000/8000/7000/6000 system user's guide",
+  retrieved: "2026-11-14",
+  kind: "manual-pdf",
+  notes: "Video input and output connectors are option boards. The number of slots depends on how many boards are installed. REF IN is two loop-through BNCs. MVS LAN and UTL LAN are one RJ-45 each. GPI is one D-sub 25-pin. AC inlets are 3-pin: six on the XVS-9000, four on the XVS-8000 and XVS-7000, two on the XVS-6000.",
+};
+
+function xvsChassis(id, acCount, maxima) {
+  return {
+    id,
+    port_data_confidence: "medium",
+    notes: `Fixed rear-panel connectors from the XVS user's guide. ${maxima} The control panel is a separate unit.`,
+    sources: [xvsGuide],
+    ports: [
+      port({
+        id: "video-in",
+        name: "Video In",
+        direction: "in",
+        signal_type: "sdi-unspecified",
+        connector: "unknown",
+        count: null,
+        optional: true,
+        confidence: "medium",
+        notes: maxima,
+      }),
+      port({
+        id: "video-out",
+        name: "Video Out",
+        direction: "out",
+        signal_type: "sdi-unspecified",
+        connector: "unknown",
+        count: null,
+        optional: true,
+        confidence: "medium",
+        notes: maxima,
+      }),
+      port({ id: "ref", name: "Reference", direction: "bidirectional", signal_type: "ref", connector: "bnc", count: 2, notes: "Loop-through pair." }),
+      port({ id: "mvs-lan", name: "MVS LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+      port({ id: "utl-lan", name: "Utility LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1, notes: "Present on the rear panel. The guide says not to connect a signal." }),
+      port({ id: "gpi", name: "GPI", direction: "out", signal_type: "gpio", connector: "db25", count: 1, notes: "Alarm output." }),
+      port({ id: "ac", name: "AC In", direction: "in", signal_type: "power", connector: "other", count: acCount, notes: "3-pin inlet. The guide does not name an IEC shell." }),
+    ],
+  };
+}
+
 export const datasheetPortOverlay = [
   {
     id: "barco.event-master-e2",
@@ -581,6 +627,117 @@ export const datasheetPortOverlay = [
       port({ id: "gpi", name: "GPI", direction: "bidirectional", signal_type: "gpio", connector: "db25", count: 1 }),
       port({ id: "usb2", name: "USB 2.0", direction: "bidirectional", signal_type: "usb", connector: "usb-a", count: 2 }),
       port({ id: "usb3", name: "USB 3.0", direction: "bidirectional", signal_type: "usb", connector: "usb-a", count: 2 }),
+    ],
+  },
+  xvsChassis("sony.xvs-9000", 6, "Up to 160 inputs and up to 80 outputs. Those figures are the slot maxima, not a shipped connector count."),
+  xvsChassis("sony.xvs-8000", 4, "Up to 160 inputs and up to 48 outputs. Those figures are the slot maxima, not a shipped connector count."),
+  xvsChassis("sony.xvs-7000", 4, "Up to 112 inputs and up to 48 outputs. Those figures are the slot maxima, not a shipped connector count."),
+  xvsChassis("sony.xvs-6000", 2, "Up to 64 inputs and up to 24 outputs. Those figures are the slot maxima, not a shipped connector count."),
+  {
+    id: "panasonic.av-hs6000",
+    port_data_confidence: "high",
+    notes:
+      "Mainframe AV-HS60U2 only. The control panel is a separate unit and its connectors are not copied here. Standard mode uses all 32 input BNCs and 32 output BNCs. The 32 output BNCs are 16 lines with a distributed copy on each line. 3G mode uses the odd-numbered terminals.",
+    sources: [
+      {
+        url: "https://pro-av.panasonic.net/en/products/av-hs6000/spec.html",
+        title: "Panasonic AV-HS6000 specifications",
+        retrieved: "2026-11-14",
+        kind: "tech-specs",
+        notes: "SDI IN BNC x 32. DVI-D IN x 2. SDI OUT BNC x 32, 16 lines with two distributed outputs per line. Reference BNC with loop-through, or two black-burst outputs in internal sync. LTC IN BNC. LAN and PANEL RJ-45. COM D-sub 9-pin x 4. GPI IN D-sub 25-pin x 1. GPI OUT D-sub 25-pin x 2.",
+      },
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "SDI In", direction: "in", signal_type: "sdi-3g", connector: "bnc", count: 32, notes: "All 32 BNCs in standard HD/SD mode. 3G mode uses the odd-numbered terminals." }),
+      port({ id: "dvi-in", name: "DVI-D In", direction: "in", signal_type: "dvi", connector: "dvi-d", count: 2 }),
+      port({ id: "sdi-out", name: "SDI Out", direction: "out", signal_type: "sdi-3g", connector: "bnc", count: 32, notes: "16 lines, two BNCs per line." }),
+      port({ id: "ref", name: "Reference", direction: "bidirectional", signal_type: "ref", connector: "bnc", count: 2, notes: "Loop-through in genlock, or two black-burst outputs in internal sync." }),
+      port({ id: "ltc-in", name: "LTC In", direction: "in", signal_type: "timecode-ltc", connector: "bnc", count: 1 }),
+      port({ id: "lan", name: "LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+      port({ id: "panel", name: "Panel", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1, notes: "Link to the control panel." }),
+      port({ id: "com", name: "RS-422", direction: "bidirectional", signal_type: "rs-422", connector: "db9", count: 4 }),
+      port({ id: "gpi-in", name: "GPI In", direction: "in", signal_type: "gpio", connector: "db25", count: 1 }),
+      port({ id: "gpi-out", name: "GPI Out", direction: "out", signal_type: "gpio", connector: "db25", count: 2 }),
+    ],
+  },
+  {
+    id: "panasonic.av-hs410",
+    port_data_confidence: "high",
+    notes:
+      "Standard chassis from the Panasonic switcher comparison sheet. Two option slots can add more inputs or outputs. Those optional lines are not stored.",
+    sources: [
+      {
+        url: "https://pro-av.panasonic.net/en/sales_o/switcher_mixer/spec.pdf",
+        title: "Panasonic live switcher comparison specifications, April 2017",
+        retrieved: "2026-11-14",
+        kind: "datasheet-pdf",
+        notes: "AV-HS410 standard SDI: 8 lines, BNC x 8. Standard DVI-D input x 1. Standard SDI output: 5 lines, BNC x 6, with OUT 1 distributed to two BNCs. Standard DVI-D output x 1.",
+      },
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "SDI In", direction: "in", signal_type: "sdi-hd", connector: "bnc", count: 8, notes: "Inputs 1–8. Option slots are not included." }),
+      port({ id: "dvi-in", name: "DVI-D In", direction: "in", signal_type: "dvi", connector: "dvi-d", count: 1 }),
+      port({ id: "sdi-out", name: "SDI Out", direction: "out", signal_type: "sdi-hd", connector: "bnc", count: 6, notes: "Five lines. OUT 1 is distributed to two BNCs." }),
+      port({ id: "dvi-out", name: "DVI-D Out", direction: "out", signal_type: "dvi", connector: "dvi-d", count: 1 }),
+    ],
+  },
+  {
+    id: "panasonic.av-hs50",
+    port_data_confidence: "high",
+    notes:
+      "The catalog id follows the Companion name AV-HS50. Panasonic sells this chassis as the AW-HS50. SDI OUT 1 is one signal split onto two BNCs, so the physical SDI output count is 3.",
+    sources: [
+      {
+        url: "https://pro-av.panasonic.net/en/sales_o/switcher_mixer/aw-hs50/av-hs50_spec.pdf",
+        title: "Panasonic AW-HS50 specifications",
+        retrieved: "2026-11-14",
+        kind: "datasheet-pdf",
+        notes: "Four SDI inputs. Two SDI output lines, with SDI OUT 1 split into two. One DVI-D input and one DVI-D output. LAN RJ-45 x 1. Tally/GPI D-sub 15-pin x 1.",
+      },
+      {
+        url: "https://pro-av.panasonic.net/en/sales_o/switcher_mixer/spec.pdf",
+        title: "Panasonic live switcher comparison specifications, April 2017",
+        retrieved: "2026-11-14",
+        kind: "datasheet-pdf",
+        notes: "AW-HS50: 4 lines, BNC x 4 in. SDI out 2 lines, BNC x 3.",
+      },
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "SDI In", direction: "in", signal_type: "sdi-hd", connector: "bnc", count: 4 }),
+      port({ id: "dvi-in", name: "DVI-D In", direction: "in", signal_type: "dvi", connector: "dvi-d", count: 1 }),
+      port({ id: "sdi-out", name: "SDI Out", direction: "out", signal_type: "sdi-hd", connector: "bnc", count: 3, notes: "OUT 1 is one line on two BNCs. OUT 2 is the second line." }),
+      port({ id: "dvi-out", name: "DVI-D Out", direction: "out", signal_type: "dvi", connector: "dvi-d", count: 1 }),
+      port({ id: "lan", name: "LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+      port({ id: "gpi", name: "Tally / GPI", direction: "bidirectional", signal_type: "gpio", connector: "other", count: 1, notes: "D-sub 15-pin. Five inputs and seven outputs on the one connector." }),
+    ],
+  },
+  {
+    id: "panasonic.av-hsw10",
+    port_data_confidence: "high",
+    notes:
+      "Physical jacks from the AV-HSW10 operating instructions. SDI IN 1 and HDMI IN 1 are mutually exclusive, and both connectors are present. SRT and NDI use the LAN jack, so they are not extra connectors.",
+    sources: [
+      {
+        url: "https://pro-av.panasonic.net/manual/pdf/AV-HSW10PJ.EJ_full(DVQP3077ZA)_E.pdf",
+        title: "Panasonic AV-HSW10 operating instructions",
+        retrieved: "2026-11-14",
+        kind: "manual-pdf",
+        notes: "SDI IN 1 to 4, BNC x 4. SDI OUT 1 and 2, BNC x 2. HDMI IN 1 and 2. HDMI OUT x 1. Reference BNC x 2. LAN RJ-45 x 1. USB Type-C x 1 and USB Type-A x 1.",
+      },
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "3G-SDI In", direction: "in", signal_type: "sdi-3g", connector: "bnc", count: 4, notes: "SDI IN 1 excludes HDMI IN 1." }),
+      port({ id: "hdmi-in", name: "HDMI In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 2, notes: "HDMI IN 1 excludes SDI IN 1." }),
+      port({ id: "sdi-out", name: "3G-SDI Out", direction: "out", signal_type: "sdi-3g", connector: "bnc", count: 2 }),
+      port({ id: "hdmi-out", name: "HDMI Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 1 }),
+      port({ id: "usb-c", name: "USB Stream Out", direction: "out", signal_type: "usb", connector: "usb-c", count: 1 }),
+      port({ id: "ref", name: "Reference", direction: "bidirectional", signal_type: "ref", connector: "bnc", count: 2 }),
+      port({ id: "audio-in", name: "Audio In", direction: "in", signal_type: "audio-analog", connector: "rca", count: 2 }),
+      port({ id: "phones", name: "Headphones", direction: "out", signal_type: "audio-analog", connector: "trs-3.5", count: 1 }),
+      port({ id: "lan", name: "LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1, notes: "IP control, SRT, and NDI share this jack." }),
+      port({ id: "gpi", name: "Tally / GPI", direction: "bidirectional", signal_type: "gpio", connector: "other", count: 1, notes: "D-sub 15-pin." }),
+      port({ id: "usb-a", name: "USB", direction: "bidirectional", signal_type: "usb", connector: "usb-a", count: 1 }),
+      port({ id: "dc-in", name: "DC In", direction: "in", signal_type: "power", connector: "other", count: 1, notes: "DC 16 V inlet. The manual does not name the shell." }),
     ],
   },
 ];
