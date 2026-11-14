@@ -457,6 +457,7 @@ export function FlowCanvas({
   const [patchPop, setPatchPop] = useState<{ x: number; y: number; label: string; nodeIds: string[]; canRemove: boolean } | null>(null);
   const [inside, setInside] = useState<{ equipmentId: number; label: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [mapSlot, setMapSlot] = useState<HTMLDivElement | null>(null);
 
   const signalColors = useMemo(() => signalMap(catalog), [catalog]);
   const [commandSlot, setCommandSlot] = useState<HTMLElement | null>(null);
@@ -1605,7 +1606,20 @@ export function FlowCanvas({
             <JackProbe onChange={onMeasuredJacks} />
             <Background gap={18} size={1} color="#3a362f" />
             <Controls />
-            <MiniMap pannable zoomable />
+            {mapSlot
+              ? createPortal(
+                  <MiniMap
+                    pannable
+                    zoomable
+                    ariaLabel="Drawing map"
+                    bgColor="var(--color-paper)"
+                    nodeColor="var(--color-ink)"
+                    maskColor="color-mix(in srgb, var(--color-ink) 18%, transparent)"
+                    style={{ width: viewportWidth >= 640 ? 176 : 144, height: viewportWidth >= 640 ? 112 : 96 }}
+                  />,
+                  mapSlot,
+                )
+              : null}
             <ViewportPortal>
               {showGroups.map((group) => {
                 const members = nodes.filter((node) => group.nodeIds.includes(node.id));
@@ -1815,33 +1829,41 @@ export function FlowCanvas({
             onClose={() => setMenu(null)}
           />
         ) : null}
-        {drawingId != null && !readOnly ? (
-          <div className="absolute right-3 bottom-3 z-30">
-            {confirmDelete ? (
-              <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 text-sm shadow-sm">
-                <span>Delete this drawing? It will not come back.</span>
-                <button
-                  type="button"
-                  className="font-semibold text-danger"
-                  onClick={() => {
-                    const id = drawingId;
-                    setConfirmDelete(false);
-                    void onDelete(id);
-                  }}
-                >
-                  Delete
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel px-3 py-2 text-ink">
+          <div className="min-w-0">
+            {drawingId != null && !readOnly ? (
+              confirmDelete ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span>Delete this drawing? It will not come back.</span>
+                  <button
+                    type="button"
+                    className="font-semibold text-danger"
+                    onClick={() => {
+                      const id = drawingId;
+                      setConfirmDelete(false);
+                      void onDelete(id);
+                    }}
+                  >
+                    Delete
+                  </button>
+                  <button type="button" className="text-muted" onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="text-xs text-muted underline underline-offset-4" onClick={() => setConfirmDelete(true)}>
+                  Delete drawing
                 </button>
-                <button type="button" className="text-muted" onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </button>
-              </div>
+              )
             ) : (
-              <button type="button" className="text-xs text-muted underline underline-offset-4" onClick={() => setConfirmDelete(true)}>
-                Delete drawing
-              </button>
+              <span className="text-xs text-muted">Drawing map</span>
             )}
           </div>
-        ) : null}
+          <div
+            ref={setMapSlot}
+            className="drawing-map relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border border-line bg-paper sm:h-28 sm:w-44"
+          />
         </div>
         {active && sheet === "draw" ? (
           <InstanceDock
