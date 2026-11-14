@@ -102,14 +102,14 @@ export function catalogRows(catalog) {
   return { rows, errors };
 }
 
-export async function upsertCatalog(query, catalog) {
+export async function upsertCatalog(query, catalog, importId = "devices") {
   const { rows, errors } = catalogRows(catalog);
   if (errors.length) {
     const error = new Error(errors.slice(0, 8).join("\n"));
     error.errors = errors;
     throw error;
   }
-  const marker = await query(`select generated_at from catalog_imports where id = 'devices'`);
+  const marker = await query(`select generated_at from catalog_imports where id = $1`, [importId]);
   if (marker[0]?.generated_at === catalog.generated_at) {
     return { status: "unchanged", count: rows.length };
   }
@@ -152,13 +152,13 @@ export async function upsertCatalog(query, catalog) {
   }
   await query(
     `insert into catalog_imports (id, schema_version, generated_at, device_count, imported_at)
-     values ('devices', $1, $2, $3, now())
+     values ($1, $2, $3, $4, now())
      on conflict (id) do update set
        schema_version = excluded.schema_version,
        generated_at = excluded.generated_at,
        device_count = excluded.device_count,
        imported_at = now()`,
-    [String(catalog.schema_version ?? ""), String(catalog.generated_at ?? ""), rows.length],
+    [importId, String(catalog.schema_version ?? ""), String(catalog.generated_at ?? ""), rows.length],
   );
   return { status: "imported", count: rows.length };
 }

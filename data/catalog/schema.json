@@ -148,6 +148,12 @@
           "enum": [
             "blackmagic", "barco", "aja", "grassvalley", "sony", "panasonic",
             "ross", "analogway", "christie", "vista", "pixelhue", "roe", "brompton",
+            "avstumpfl", "disguise", "anomes", "resolume", "dataton", "greenhippo", "seventhsense",
+            "newtek", "studiocoast", "roland", "fora", "datavideo", "novastar", "colorlight",
+            "birddog", "magewell", "teradek", "kiloview", "canon", "lumens", "marshall", "jvc",
+            "vaddio", "figure53", "renewedvision", "extron", "kramer", "tvone", "lightware",
+            "crestron", "evertz", "haivision", "matrox", "riedel", "tsl", "softron", "theatrixx",
+            "dtvideolabs", "smode", "vyv", "avolites", "telestream", "casparcg", "videolan",
             "other"
           ]
         },

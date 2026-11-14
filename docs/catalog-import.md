@@ -15,4 +15,6 @@ Coverage and the Companion manufacturers that are not in this file yet:
 - `docs/catalog-coverage.md` — what is strong, what is identity-only, and which official sources were blocked.
 - `docs/catalog-companion-gap.md` — the next manufacturers to add as identity-only nodes until a datasheet is in hand.
 
-Next pass, still without invented port counts: Barco Event Master, Brompton Tessera, ROE panels, Panasonic PTZ and Kairos, Sony switchers and PTZ, Grass Valley K-Frame, then the Companion priority list (NovaStar, Roland, BirdDog, disguise, PIXERA, Millumin, vMix, TriCaster).
+Priority A from `docs/catalog-companion-gap.md` is loaded as identity-only nodes (`scripts/companion-identity-source.mjs`). Those records have empty `ports` and `port_data_confidence: none`. The importer turns each into one unverified placeholder. No port count is stored.
+
+Still waiting on official datasheets, with no invented counts: Barco Event Master, Brompton Tessera, ROE panels, Panasonic PTZ and Kairos, Sony switchers and PTZ, and Grass Valley K-Frame.
