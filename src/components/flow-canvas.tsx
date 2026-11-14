@@ -32,7 +32,9 @@ import { SignalBoard } from "@/components/signal-board";
 import { deviceTiming } from "@/lib/signal/propagate";
 import { GearNodeCard, gearNodeSize, jackOffset } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
+import { InstanceDock } from "@/components/instance-dock";
 import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } from "@/components/orthogonal-edge";
+import { instanceDockSide } from "@/lib/layout/instance-dock";
 import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
@@ -1195,6 +1197,36 @@ export function FlowCanvas({
   }, [applySelection]);
 
   const active = selectedNodes.length === 1 ? selectedNodes[0] : null;
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === "undefined" ? 1024 : window.innerWidth));
+  useEffect(() => {
+    const apply = () => setViewportWidth(window.innerWidth);
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, []);
+  const dockSide = instanceDockSide(viewportWidth);
+  const canvasFrame = useRef<HTMLDivElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    if (sheet !== "draw") return;
+    const frame = canvasFrame.current;
+    if (!frame) return;
+    const fit = () => {
+      const current = activeRef.current;
+      const flow = flowRef.current;
+      if (!current || !flow) return;
+      const size = nodeBox(current);
+      void flow.fitBounds(
+        { x: current.position.x, y: current.position.y, width: size.width, height: size.height },
+        { padding: 0.45, duration: 0 },
+      );
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(frame);
+    fit();
+    return () => observer.disconnect();
+  }, [active?.id, dockSide, sheet]);
   const focusIds = patchFocus ? new Set(patchFocus.nodeIds) : null;
   const patchEdges = focusIds ? edges.filter((edge) => focusIds.has(edge.source) || focusIds.has(edge.target)) : edges;
   const patch = patchRows(nodes, patchEdges);
@@ -1399,7 +1431,8 @@ export function FlowCanvas({
           {gearBar ? null : <p className="shrink-0 text-xs text-muted">Right-click the canvas to add gear.</p>}
           {titleLine ? <p className="truncate text-xs text-muted">{titleLine}</p> : null}
         </div>
-        <div className="relative min-h-0 flex-1">
+        <div className={`flex min-h-0 flex-1 ${dockSide === "side" ? "flex-row" : "flex-col"}`}>
+        <div ref={canvasFrame} className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {pendingGroup ? (
           <form
             onSubmit={commitGroup}
@@ -1473,50 +1506,6 @@ export function FlowCanvas({
                 Cancel
               </button>
             </div>
-          </form>
-        ) : null}
-        {active && sheet === "draw" ? (
-          <form
-            className="absolute bottom-3 left-3 z-30 w-72 rounded-2xl border border-ink bg-panel p-4 shadow-lg"
-            onSubmit={(event) => event.preventDefault()}
-          >
-            <p className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">This instance</p>
-            <p className="mt-1 text-sm font-semibold">
-              {active.data.manufacturer} {active.data.model}
-            </p>
-            {active.data.kind === "system" ? (
-              <p className="text-xs text-muted">System. The pull list counts it as one unit.</p>
-            ) : null}
-            <label className="mt-3 block text-sm">
-              Unit ID
-              <input
-                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-                value={active.data.unitId}
-                onChange={(event) => {
-                  const unitId = event.target.value;
-                  patchNode(active.id, { unitId });
-                  const clash = nodes.some((node) => node.id !== active.id && node.data.unitId === unitId && unitId.trim());
-                  if (clash) setHint(`${unitId} is already used on this drawing.`);
-                }}
-              />
-            </label>
-            <label className="mt-2 block text-sm">
-              IP address
-              <input
-                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-                value={active.data.ip}
-                placeholder="192.168.0.175"
-                onChange={(event) => patchNode(active.id, { ip: event.target.value })}
-              />
-            </label>
-            <label className="mt-2 block text-sm">
-              Special notes
-              <input
-                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-                value={active.data.specialNotes}
-                onChange={(event) => patchNode(active.id, { specialNotes: event.target.value })}
-              />
-            </label>
           </form>
         ) : null}
         <div className="absolute inset-0" onPointerDownCapture={onCanvasPointerDown} onClickCapture={onCanvasClickCapture}>
@@ -1615,7 +1604,7 @@ export function FlowCanvas({
           >
             <JackProbe onChange={onMeasuredJacks} />
             <Background gap={18} size={1} color="#3a362f" />
-            <Controls style={active && sheet === "draw" ? { marginLeft: 300 } : undefined} />
+            <Controls />
             <MiniMap pannable zoomable />
             <ViewportPortal>
               {showGroups.map((group) => {
@@ -1852,6 +1841,26 @@ export function FlowCanvas({
               </button>
             )}
           </div>
+        ) : null}
+        </div>
+        {active && sheet === "draw" ? (
+          <InstanceDock
+            side={dockSide}
+            manufacturer={active.data.manufacturer}
+            model={active.data.model}
+            kind={active.data.kind}
+            unitId={active.data.unitId}
+            ip={active.data.ip}
+            notes={active.data.specialNotes}
+            readOnly={readOnly}
+            onUnitId={(unitId) => {
+              patchNode(active.id, { unitId });
+              const clash = nodes.some((node) => node.id !== active.id && node.data.unitId === unitId && unitId.trim());
+              if (clash) setHint(`${unitId} is already used on this drawing.`);
+            }}
+            onIp={(ip) => patchNode(active.id, { ip })}
+            onNotes={(specialNotes) => patchNode(active.id, { specialNotes })}
+          />
         ) : null}
         </div>
       </div>
