@@ -5,9 +5,12 @@ export const PATCH_SCHEMA = "pvllc.patch/1.0.0";
 export type PatchPort = {
   deviceId: string;
   portId: string;
+  /** Jack name printed on the box. The port id stays the stable key. */
+  name?: string;
   signal: string;
   direction: "input" | "output";
   required?: boolean;
+  caution?: "unverified" | "unknown-count" | null;
 };
 
 export type PatchConnection = {
@@ -16,6 +19,9 @@ export type PatchConnection = {
   sourcePort: string;
   destinationDevice: string;
   destinationPort: string;
+  /** Jack names a tech reads. Port ids stay the stable keys. */
+  sourceJack?: string;
+  destinationJack?: string;
   signalType: string;
   signalFormat: string;
   cableType: string;
@@ -32,10 +38,14 @@ export type PatchDocument = {
 
 export type PatchIssue = {
   level: "error" | "warning";
-  code: "incompatible" | "double-patched" | "unconnected-required" | "missing-port";
+  code: "incompatible" | "double-patched" | "unconnected-required" | "missing-port" | "unverified-port";
   message: string;
   connectionId?: string;
 };
+
+function portName(port: PatchPort): string {
+  return port.name?.trim() || port.portId;
+}
 
 function family(signal: string): string {
   const value = signal.toLowerCase();
@@ -90,6 +100,16 @@ export function validatePatch(connections: PatchConnection[], ports: PatchPort[]
       });
       continue;
     }
+    for (const port of [source, destination]) {
+      if (!port?.caution) continue;
+      const kind = port.caution === "unknown-count" ? "an unknown count" : "unverified";
+      issues.push({
+        level: "warning",
+        code: "unverified-port",
+        connectionId: connection.id,
+        message: `${connection.cableLabel || connection.id} uses ${port.deviceId} ${portName(port)}, which is ${kind}.`,
+      });
+    }
     const fit = signalsCompatible(source.signal || connection.signalType, destination.signal);
     if (fit !== "ok") {
       issues.push({
@@ -127,7 +147,7 @@ export function validatePatch(connections: PatchConnection[], ports: PatchPort[]
       issues.push({
         level: "warning",
         code: "unconnected-required",
-        message: `${port.deviceId} ${port.portId} is required and has no cable.`,
+        message: `${port.deviceId} ${portName(port)} is required and has no cable.`,
       });
     }
   }
@@ -147,8 +167,10 @@ export function parsePatchDocument(raw: unknown): { document: PatchDocument | nu
     id: String(item?.id ?? `cable-${index + 1}`),
     sourceDevice: String(item?.sourceDevice ?? ""),
     sourcePort: String(item?.sourcePort ?? ""),
+    sourceJack: String(item?.sourceJack ?? ""),
     destinationDevice: String(item?.destinationDevice ?? ""),
     destinationPort: String(item?.destinationPort ?? ""),
+    destinationJack: String(item?.destinationJack ?? ""),
     signalType: String(item?.signalType ?? ""),
     signalFormat: String(item?.signalFormat ?? ""),
     cableType: String(item?.cableType ?? ""),
@@ -163,8 +185,10 @@ const CSV_HEADER = [
   "id",
   "sourceDevice",
   "sourcePort",
+  "sourceJack",
   "destinationDevice",
   "destinationPort",
+  "destinationJack",
   "signalType",
   "signalFormat",
   "cableType",
@@ -200,8 +224,10 @@ export function connectionsFromCsv(text: string): { connections: PatchConnection
       id: cell("id") || `cable-${position + 1}`,
       sourceDevice: cell("sourceDevice"),
       sourcePort: cell("sourcePort"),
+      sourceJack: cell("sourceJack"),
       destinationDevice: cell("destinationDevice"),
       destinationPort: cell("destinationPort"),
+      destinationJack: cell("destinationJack"),
       signalType: cell("signalType"),
       signalFormat: cell("signalFormat"),
       cableType: cell("cableType"),

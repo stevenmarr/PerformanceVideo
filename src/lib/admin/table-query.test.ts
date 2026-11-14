@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildRowDelete, buildRowUpdate, buildTableSelect, cellText, toCsv } from "./table-query.ts";
+import { buildRowDelete, buildRowUpdate, buildTableSelect, cellText, exportWindow, toCsv } from "./table-query.ts";
 
 const columns = ["id", "email", "password", "name"];
 
@@ -59,5 +59,17 @@ describe("table browser queries", () => {
 
   it("escapes csv", () => {
     assert.equal(toCsv(["name"], [{ name: "a, \"b\"" }]), "name\n\"a, \"\"b\"\"\"");
+  });
+
+  it("pages an export past 5,000 rows and stops at the cap", () => {
+    const six = exportWindow(6000);
+    assert.deepEqual(six.offsets, [0, 1000, 2000, 3000, 4000, 5000]);
+    assert.equal(six.take, 6000);
+    assert.equal(six.truncated, false);
+    const capped = exportWindow(100_001);
+    assert.equal(capped.offsets.length, 100);
+    assert.equal(capped.take, 100_000);
+    assert.equal(capped.truncated, true);
+    assert.equal(exportWindow(0).offsets.length, 0);
   });
 });

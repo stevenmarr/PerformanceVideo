@@ -7,8 +7,10 @@ import {
   ROW_EDIT_PHRASE,
   buildRowDelete,
   buildRowUpdate,
+  EXPORT_PAGE,
   buildTableSelect,
   cellText,
+  exportWindow,
   toCsv,
   type FilterOp,
   type SortDir,
@@ -138,26 +140,49 @@ export const adminTableCsv = createServerFn({ method: "POST" })
   }))
   .handler(async ({ context, data }) => {
     const opened = await requireAdmin(context.userId);
-    if (!opened) return { error: "Not an admin.", csv: "" };
+    if (!opened) return { error: "Not an admin.", csv: "", truncated: false, rowCount: 0 };
     const meta = await loadColumns(opened.sql, data.table);
-    if (!meta) return { error: "Unknown table.", csv: "" };
-    const query = buildTableSelect({
+    if (!meta) return { error: "Unknown table.", csv: "", truncated: false, rowCount: 0 };
+    const filter = data.filterValue && data.filterColumn ? { column: data.filterColumn, op: asOp(data.filterOp), value: data.filterValue } : null;
+    const search = data.filterValue && !data.filterColumn ? data.filterValue : null;
+    const counted = buildTableSelect({
       table: data.table,
       columns: meta.columns,
-      filter: data.filterValue && data.filterColumn ? { column: data.filterColumn, op: asOp(data.filterOp), value: data.filterValue } : null,
-      search: data.filterValue && !data.filterColumn ? data.filterValue : null,
-      limit: 5000,
+      filter,
+      search,
+      limit: 1,
       offset: 0,
-      maxLimit: 5000,
     });
-    const raw = await opened.sql.query<Record<string, unknown>>(query.text, query.params);
-    await writeAudit(opened.sql, opened.actor.id, "db.export", "table", data.table, `${raw.length} rows`);
+    const countRows = await opened.sql.query<{ count: number }>(counted.countText, counted.params.slice(0, counted.params.length - 2));
+    const window = exportWindow(Number(countRows[0]?.count ?? 0));
+    const raw: Record<string, unknown>[] = [];
+    for (const offset of window.offsets) {
+      const page = buildTableSelect({
+        table: data.table,
+        columns: meta.columns,
+        filter,
+        search,
+        limit: Math.min(EXPORT_PAGE, window.take - offset),
+        offset,
+        maxLimit: EXPORT_PAGE,
+      });
+      const rows = await opened.sql.query<Record<string, unknown>>(page.text, page.params);
+      raw.push(...rows);
+    }
+    await writeAudit(
+      opened.sql,
+      opened.actor.id,
+      "db.export",
+      "table",
+      data.table,
+      window.truncated ? `${raw.length} rows, capped` : `${raw.length} rows`,
+    );
     const rows = raw.map((row) => {
       const cells: Record<string, string> = {};
       for (const column of meta.columns) cells[column] = cellText(row[column], column, data.reveal);
       return cells;
     });
-    return { error: null, csv: toCsv(meta.columns, rows) };
+    return { error: null, csv: toCsv(meta.columns, rows), truncated: window.truncated, rowCount: raw.length };
   });
 
 export const adminUpdateRow = createServerFn({ method: "POST" })

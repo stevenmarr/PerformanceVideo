@@ -72,4 +72,49 @@ describe("patch documents", () => {
     assert.equal(back.connections[0]?.signalFormat, "1080p59.94");
     assert.equal(back.connections[0]?.notes, "stage left");
   });
+
+  it("names the jack and warns when a cable uses an unverified or unknown-count port", () => {
+    const named = cable({
+      id: "c2",
+      sourceDevice: "CAM-1",
+      sourcePort: "sdi-out-1",
+      sourceJack: "SDI Out 1",
+      destinationDevice: "SW-1",
+      destinationPort: "unverified",
+      destinationJack: "Unverified port (unverified)",
+      cableLabel: "CAM-A",
+    });
+    const csv = connectionsToCsv([named]);
+    const back = connectionsFromCsv(csv);
+    assert.equal(back.connections[0]?.sourceJack, "SDI Out 1");
+    assert.equal(back.connections[0]?.destinationJack, "Unverified port (unverified)");
+    const issues = validatePatch([named], [
+      ...ports,
+      {
+        deviceId: "SW-1",
+        portId: "unverified",
+        name: "Unverified port (unverified)",
+        signal: "unknown",
+        direction: "input",
+        caution: "unverified",
+      },
+      {
+        deviceId: "CAM-1",
+        portId: "hdmi-out",
+        name: "HDMI Out (count unknown)",
+        signal: "hdmi",
+        direction: "output",
+        caution: "unknown-count",
+      },
+    ]);
+    assert.ok(issues.some((issue) => issue.code === "unverified-port" && issue.message.includes("Unverified port (unverified)")));
+    const unknown = validatePatch(
+      [cable({ id: "c3", sourceDevice: "CAM-1", sourcePort: "hdmi-out", destinationDevice: "MON-1", destinationPort: "hdmi-in" })],
+      [
+        { deviceId: "CAM-1", portId: "hdmi-out", name: "HDMI Out (count unknown)", signal: "hdmi", direction: "output", caution: "unknown-count" },
+        { deviceId: "MON-1", portId: "hdmi-in", name: "HDMI In", signal: "hdmi", direction: "input" },
+      ],
+    );
+    assert.ok(unknown.some((issue) => issue.message.includes("HDMI Out (count unknown)") && issue.message.includes("unknown count")));
+  });
 });

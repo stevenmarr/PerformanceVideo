@@ -14,11 +14,17 @@ export type TimedEdge = {
   source: string;
   target: string;
   format: string;
+  fromJack?: string;
+  toJack?: string;
+  caution?: string;
 };
 
 export type PathResult = {
   deviceId: string;
   label: string;
+  /** Jack-to-jack hops that reached this device, in order. */
+  via: string;
+  caution: string;
   edgeIds: string[];
   latencyMs: number;
   latencyFrames: number;
@@ -79,10 +85,21 @@ export function propagate(sourceId: string, devices: TimedDevice[], edges: Timed
   }
 
   const paths: PathResult[] = [];
-  const queue: { id: string; edgeIds: string[]; ms: number; frames: number; estimate: boolean; format: string }[] = [
+  const queue: {
+    id: string;
+    edgeIds: string[];
+    via: string[];
+    caution: string[];
+    ms: number;
+    frames: number;
+    estimate: boolean;
+    format: string;
+  }[] = [
     {
       id: source.id,
       edgeIds: [],
+      via: [],
+      caution: [],
       ms: source.latencyMs,
       frames: source.latencyFrames,
       estimate: source.estimate,
@@ -100,6 +117,8 @@ export function propagate(sourceId: string, devices: TimedDevice[], edges: Timed
       paths.push({
         deviceId: device.id,
         label: device.label,
+        via: current.via.join(" · "),
+        caution: current.caution.join(". "),
         edgeIds: current.edgeIds,
         latencyMs: current.ms,
         latencyFrames: current.frames,
@@ -124,9 +143,13 @@ export function propagate(sourceId: string, devices: TimedDevice[], edges: Timed
           message: `${device.label} is ${current.format} and the cable to ${next.label} is ${edge.format}.`,
         });
       }
+      const leave = edge.fromJack?.trim() || "jack";
+      const land = edge.toJack?.trim() || "jack";
       queue.push({
         id: next.id,
         edgeIds: [...current.edgeIds, edge.id],
+        via: [...current.via, `${device.label} ${leave} → ${next.label} ${land}`],
+        caution: edge.caution?.trim() ? [...current.caution, edge.caution.trim()] : current.caution,
         ms: current.ms + next.latencyMs,
         frames: current.frames + next.latencyFrames,
         estimate: current.estimate || next.estimate,

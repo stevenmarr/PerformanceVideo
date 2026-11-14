@@ -139,6 +139,11 @@ export function DatabasePanel() {
                 anchor.download = `${table}.csv`;
                 anchor.click();
                 URL.revokeObjectURL(url);
+                setNote(
+                  result.truncated
+                    ? `Exported ${result.rowCount ?? "the"} rows and stopped at the cap. Narrow the filter for the rest.`
+                    : `Exported ${result.rowCount ?? ""} rows.`,
+                );
               })
             }
           >

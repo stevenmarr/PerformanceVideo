@@ -26,6 +26,24 @@ export function toCsv(columns: string[], rows: Record<string, string>[]): string
   return lines.join("\n");
 }
 
+export const EXPORT_PAGE = 1000;
+export const EXPORT_CAP = 100_000;
+
+/** Page a filtered export past a single query, and say when the cap stops it. */
+export function exportWindow(
+  total: number,
+  pageSize = EXPORT_PAGE,
+  cap = EXPORT_CAP,
+): { offsets: number[]; take: number; truncated: boolean } {
+  const count = Math.max(0, Math.floor(total));
+  const size = Math.max(1, Math.floor(pageSize));
+  const limit = Math.max(size, Math.floor(cap));
+  const take = Math.min(count, limit);
+  const offsets: number[] = [];
+  for (let offset = 0; offset < take; offset += size) offsets.push(offset);
+  return { offsets, take, truncated: count > limit };
+}
+
 export function likePattern(value: string): string {
   return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }

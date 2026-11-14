@@ -91,8 +91,10 @@ export function SignalBoard({
         {result.paths.map((path) => (
           <li key={path.deviceId} className="rounded-xl border border-line px-3 py-2 text-sm">
             <span className="font-semibold">{path.label}</span>
+            {path.via ? <span className="text-muted"> · {path.via}</span> : null}
             <span className="text-muted"> · {path.latencyMs} ms · {path.latencyFrames} frames</span>
             {path.estimate ? <span className="text-muted"> · estimate</span> : null}
+            {path.caution ? <span className="text-danger"> · {path.caution}</span> : null}
           </li>
         ))}
         {!result.paths.length ? <li className="text-sm text-muted">Nothing is downstream of that source.</li> : null}
