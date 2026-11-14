@@ -17,15 +17,51 @@ export function inkOn(hex: string): string {
   return y > 160 ? "#111111" : "#f3efe6";
 }
 
-export function gearNodeSize(
-  pins: { direction: string }[],
-  extra?: { ip?: string; notes?: string },
-) {
+export const GEAR_NODE_WIDTH = 256;
+
+const BORDER = 1;
+const HEADER = 36;
+const BODY_PAD_TOP = 8;
+const LINE = 18;
+const BODY_PAD_BOTTOM = 6;
+const NOTE = 34;
+const PIN_PAD = 8;
+const PIN_ROW = 32;
+const PIN_ROW_H = 28;
+
+export type GearExtras = { ip?: string; notes?: string; unit?: string };
+
+function bodyHeight(extra?: GearExtras): number {
+  const lines = 2 + (extra?.unit ? 1 : 0) + (extra?.ip ? 1 : 0);
+  return BODY_PAD_TOP + lines * LINE + (extra?.notes ? NOTE : 0) + BODY_PAD_BOTTOM;
+}
+
+export function gearNodeSize(pins: { direction: string }[], extra?: GearExtras) {
   const inputs = pins.filter((pin) => pin.direction === "input").length;
   const outputs = pins.filter((pin) => pin.direction === "output").length;
   const rows = Math.max(inputs, outputs, 1);
-  const detail = (extra?.ip ? 18 : 0) + (extra?.notes ? 32 : 0);
-  return { width: 256, height: 108 + detail + rows * 32 + 8 };
+  return { width: GEAR_NODE_WIDTH, height: BORDER + HEADER + bodyHeight(extra) + PIN_PAD + rows * PIN_ROW + BORDER };
+}
+
+/** Jack position relative to the node origin. Outputs sit on the right edge, inputs on the left. */
+export function jackOffset(
+  pins: { id?: string; direction: string }[],
+  pinId: string,
+  extra?: GearExtras,
+): { x: number; y: number } | null {
+  const inputs = pins.filter((pin) => pin.direction === "input");
+  const outputs = pins.filter((pin) => pin.direction === "output");
+  let index = inputs.findIndex((pin) => pin.id === pinId);
+  let side: "input" | "output" | null = index >= 0 ? "input" : null;
+  if (side == null) {
+    index = outputs.findIndex((pin) => pin.id === pinId);
+    if (index >= 0) side = "output";
+  }
+  if (side == null || index < 0) return null;
+  return {
+    x: side === "input" ? 0 : GEAR_NODE_WIDTH,
+    y: BORDER + HEADER + bodyHeight(extra) + PIN_PAD + index * PIN_ROW + PIN_ROW_H / 2,
+  };
 }
 
 export function GearNodeCard({
@@ -62,14 +98,15 @@ export function GearNodeCard({
   const rows = Math.max(inputs.length, outputs.length, 1);
   const unit = unitId || instanceId;
   const detail = specialNotes || notes;
+  const chrome = bodyHeight({ ip, notes: detail, unit });
 
   return (
     <div
       className={`w-64 overflow-visible rounded-xl border bg-panel text-ink shadow-sm ${selected ? "border-ink" : "border-line"}`}
     >
       <div
-        className="flex items-center justify-between gap-2 rounded-t-xl px-3 py-2 text-xs font-semibold tracking-[0.14em] uppercase"
-        style={{ background: color, color: inkOn(color) }}
+        className="flex items-center justify-between gap-2 rounded-t-xl px-3 text-xs font-semibold tracking-[0.14em] uppercase"
+        style={{ background: color, color: inkOn(color), height: HEADER }}
       >
         <span className="min-w-0 truncate">{deviceType || "Device"}</span>
         {pins.some((pin) => /unverified|count unknown/i.test(pin.label)) ? (
@@ -83,16 +120,20 @@ export function GearNodeCard({
           </span>
         ) : null}
       </div>
-      <div className="px-3 pt-2 pb-1">
-        <p className="truncate text-sm font-semibold leading-tight">{manufacturer || "Manufacturer"}</p>
-        <p className="truncate text-sm leading-tight">{model || "Model"}</p>
-        {unit ? <p className="truncate text-xs font-semibold text-ink">{unit}</p> : null}
-        {ip ? <p className="truncate text-xs text-muted">{ip}</p> : null}
-        {detail ? <p className="mt-1 line-clamp-2 text-xs text-muted">{detail}</p> : null}
+      <div className="overflow-hidden px-3" style={{ height: chrome, paddingTop: BODY_PAD_TOP }}>
+        <p className="truncate text-sm font-semibold" style={{ lineHeight: `${LINE}px` }}>{manufacturer || "Manufacturer"}</p>
+        <p className="truncate text-sm" style={{ lineHeight: `${LINE}px` }}>{model || "Model"}</p>
+        {unit ? <p className="truncate text-xs font-semibold text-ink" style={{ lineHeight: `${LINE}px` }}>{unit}</p> : null}
+        {ip ? <p className="truncate text-xs text-muted" style={{ lineHeight: `${LINE}px` }}>{ip}</p> : null}
+        {detail ? (
+          <p className="line-clamp-2 text-xs text-muted" style={{ height: NOTE - 2, marginTop: 2, lineHeight: "16px" }}>
+            {detail}
+          </p>
+        ) : null}
       </div>
-      <div className="relative" style={{ height: rows * 32 + 8 }}>
+      <div className="relative" style={{ height: PIN_PAD + rows * PIN_ROW }}>
         {Array.from({ length: rows }, (_, index) => (
-          <div key={index} className="absolute right-0 left-0 flex" style={{ top: 8 + index * 32, height: 28 }}>
+          <div key={index} className="absolute right-0 left-0 flex" style={{ top: PIN_PAD + index * PIN_ROW, height: PIN_ROW_H }}>
             <div className="relative flex w-1/2 min-w-0 items-center gap-1">
               {inputs[index] ? (
                 <PinRow pin={inputs[index]} side="input" color={signalColors[inputs[index].signal] ?? "#e7e5e4"} wired={wired} />

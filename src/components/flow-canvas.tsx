@@ -16,6 +16,7 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useStore,
   type Connection,
   type Edge,
   type Node,
@@ -29,7 +30,7 @@ import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle, NetworkInterf
 import { NetworkBoard } from "@/components/network-board";
 import { SignalBoard } from "@/components/signal-board";
 import { deviceTiming } from "@/lib/signal/propagate";
-import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
+import { GearNodeCard, gearNodeSize, jackOffset } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
 import { OrthogonalCable, RouteContext } from "@/components/orthogonal-edge";
 import { routeEdges } from "@/lib/routing/orthogonal";
@@ -297,8 +298,58 @@ function toFile(
   };
 }
 
+function nodeExtras(node: EquipmentNode) {
+  return { ip: node.data.ip, notes: node.data.specialNotes, unit: node.data.unitId };
+}
+
 function nodeBox(node: EquipmentNode) {
-  return gearNodeSize(node.data.pins, { ip: node.data.ip, notes: node.data.specialNotes });
+  const measuredWidth = node.measured?.width;
+  const measuredHeight = node.measured?.height;
+  const sized = gearNodeSize(node.data.pins, nodeExtras(node));
+  return {
+    width: measuredWidth && measuredWidth > 0 ? measuredWidth : sized.width,
+    height: measuredHeight && measuredHeight > 0 ? measuredHeight : sized.height,
+  };
+}
+
+type JackPoint = { key: string; x: number; y: number };
+
+function sameJacks(a: JackPoint[], b: JackPoint[]): boolean {
+  return a.length === b.length && a.every((item, index) => item.key === b[index]?.key && item.x === b[index]?.x && item.y === b[index]?.y);
+}
+
+function JackProbe({ onChange }: { onChange: (jacks: JackPoint[]) => void }) {
+  const jacks = useStore((state) => {
+    const found: JackPoint[] = [];
+    for (const node of state.nodeLookup.values()) {
+      const bounds = node.internals.handleBounds;
+      const handles = [...(bounds?.source ?? []), ...(bounds?.target ?? [])];
+      for (const handle of handles) {
+        if (!handle.id) continue;
+        const originX = node.internals.positionAbsolute.x + handle.x;
+        const originY = node.internals.positionAbsolute.y + handle.y;
+        const atRight = handle.position === "right";
+        const atLeft = handle.position === "left";
+        found.push({
+          key: `${node.id}:${handle.id}`,
+          x: atRight ? originX + handle.width : atLeft ? originX : originX + handle.width / 2,
+          y: originY + handle.height / 2,
+        });
+      }
+    }
+    found.sort((a, b) => a.key.localeCompare(b.key));
+    return found;
+  }, sameJacks);
+  useEffect(() => {
+    onChange(jacks);
+  }, [jacks, onChange]);
+  return null;
+}
+
+function fallbackJack(node: EquipmentNode, pinId: string): { x: number; y: number } | null {
+  const offset = jackOffset(node.data.pins, pinId, nodeExtras(node));
+  if (!offset) return null;
+  return { x: node.position.x + offset.x, y: node.position.y + offset.y };
 }
 
 function downloadText(filename: string, body: string, type: string) {
@@ -364,31 +415,37 @@ export function FlowCanvas({
   const [name, setName] = useState(drawing.name);
   const [title, setTitle] = useState<DrawingTitle>(drawing.graph.title);
   const [cableStyle, setCableStyle] = useState<CableStyle>(drawing.graph.cableStyle);
+  const [measuredJacks, setMeasuredJacks] = useState<JackPoint[]>([]);
+  const onMeasuredJacks = useCallback((jacks: JackPoint[]) => setMeasuredJacks(jacks), []);
   const routes = useMemo(() => {
     if (cableStyle !== "square") return new Map<string, { x: number; y: number }[]>();
+    const jackAt = new Map(measuredJacks.map((jack) => [jack.key, jack]));
     const boxes = nodes.map((node) => {
-      const size = gearNodeSize(node.data.pins, { ip: node.data.ip, notes: node.data.specialNotes });
+      const size = nodeBox(node);
       return { id: node.id, x: node.position.x, y: node.position.y, w: size.width, h: size.height };
     });
-    const byId = new Map(boxes.map((box) => [box.id, box]));
+    const byId = new Map(nodes.map((node) => [node.id, node]));
     return routeEdges(
       boxes,
       edges.flatMap((edge) => {
         const source = byId.get(edge.source);
         const target = byId.get(edge.target);
-        if (!source || !target) return [];
+        if (!source || !target || !edge.sourceHandle || !edge.targetHandle) return [];
+        const from = jackAt.get(`${edge.source}:${edge.sourceHandle}`) ?? fallbackJack(source, edge.sourceHandle);
+        const to = jackAt.get(`${edge.target}:${edge.targetHandle}`) ?? fallbackJack(target, edge.targetHandle);
+        if (!from || !to) return [];
         return [{
           edgeId: edge.id,
           sourceId: edge.source,
           targetId: edge.target,
-          x1: source.x + source.w,
-          y1: source.y + source.h / 2,
-          x2: target.x,
-          y2: target.y + target.h / 2,
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
         }];
       }),
     );
-  }, [cableStyle, edges, nodes]);
+  }, [cableStyle, edges, measuredJacks, nodes]);
   const [sheet, setSheet] = useState<"draw" | "patch" | "pull">("draw");
   const [patchFocus, setPatchFocus] = useState<{ label: string; nodeIds: string[] } | null>(null);
   const [patchPop, setPatchPop] = useState<{ x: number; y: number; label: string; nodeIds: string[]; canRemove: boolean } | null>(null);
@@ -1550,6 +1607,7 @@ export function FlowCanvas({
             panActivationKeyCode="Space"
             zoomOnScroll
           >
+            <JackProbe onChange={onMeasuredJacks} />
             <Background gap={18} size={1} color="#3a362f" />
             <Controls style={active && sheet === "draw" ? { marginLeft: 300 } : undefined} />
             <MiniMap pannable zoomable />
