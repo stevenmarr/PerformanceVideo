@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { studioOwnerLocked } from "@/lib/admin/studio-owner";
+import { toCsv } from "@/lib/admin/table-query";
 import { adminHome, adminSetPassword, adminUser, type AdminHome, type AdminUserDetail } from "@/lib/admin.functions";
 import {
   adminDeleteEquipment,
@@ -58,6 +60,32 @@ export function UsersPanel({ you }: { you: string }) {
         <button type="submit" className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper">
           Search
         </button>
+        <button
+          type="button"
+          className="rounded-full border border-line px-4 py-2 text-sm"
+          onClick={() => {
+            const csv = toCsv(
+              ["name", "email", "username", "role", "drawings", "status"],
+              home.users.map((row) => ({
+                name: row.name,
+                email: row.email,
+                username: row.username,
+                role: row.role,
+                drawings: String(row.drawings),
+                status: row.disabled ? "disabled" : "active",
+              })),
+            );
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = "accounts.csv";
+            anchor.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          Export accounts
+        </button>
       </form>
       {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
       {note ? <p className="mt-3 text-sm">{note}</p> : null}
@@ -103,6 +131,9 @@ export function UsersPanel({ you }: { you: string }) {
               {detail.user.email.toLowerCase() === you.toLowerCase() ? " · You" : ""}
             </p>
           </div>
+          {studioOwnerLocked(detail.user.username) ? (
+            <p className="text-sm">{studioOwnerLocked(detail.user.username)}</p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -116,30 +147,34 @@ export function UsersPanel({ you }: { you: string }) {
             >
               Make admin
             </button>
-            <button
-              type="button"
-              className="rounded-full border border-line px-4 py-2 text-sm"
-              onClick={() =>
-                void adminSetRole({ data: { userId: detail.user.id, role: "user" } }).then((result) => {
-                  setError(result.error ?? "");
-                  if (!result.error) setNote("Role set to user.");
-                })
-              }
-            >
-              Make user
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-line px-4 py-2 text-sm"
-              onClick={() =>
-                void adminSetDisabled({ data: { userId: detail.user.id, disabled: true } }).then((result) => {
-                  setError(result.error ?? "");
-                  if (!result.error) setNote("Account disabled and signed out.");
-                })
-              }
-            >
-              Disable
-            </button>
+            {studioOwnerLocked(detail.user.username) ? null : (
+              <button
+                type="button"
+                className="rounded-full border border-line px-4 py-2 text-sm"
+                onClick={() =>
+                  void adminSetRole({ data: { userId: detail.user.id, role: "user" } }).then((result) => {
+                    setError(result.error ?? "");
+                    if (!result.error) setNote("Role set to user.");
+                  })
+                }
+              >
+                Make user
+              </button>
+            )}
+            {studioOwnerLocked(detail.user.username) ? null : (
+              <button
+                type="button"
+                className="rounded-full border border-line px-4 py-2 text-sm"
+                onClick={() =>
+                  void adminSetDisabled({ data: { userId: detail.user.id, disabled: true } }).then((result) => {
+                    setError(result.error ?? "");
+                    if (!result.error) setNote("Account disabled and signed out.");
+                  })
+                }
+              >
+                Disable
+              </button>
+            )}
             <button
               type="button"
               className="rounded-full border border-line px-4 py-2 text-sm"
@@ -260,6 +295,7 @@ export function UsersPanel({ you }: { you: string }) {
               </button>
             </form>
           </div>
+          {studioOwnerLocked(detail.user.username) ? null : (
           <form
             className="rounded-2xl border border-line p-4"
             onSubmit={(event) => {
@@ -281,6 +317,7 @@ export function UsersPanel({ you }: { you: string }) {
               Delete account
             </button>
           </form>
+          )}
         </section>
       )}
     </div>

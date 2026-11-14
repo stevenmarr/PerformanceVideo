@@ -1,4 +1,5 @@
 import { getSql, type Sql } from "@/lib/db";
+export { STUDIO_OWNER_USERNAME, studioOwnerLocked } from "@/lib/admin/studio-owner";
 
 export type AdminActor = {
   id: string;

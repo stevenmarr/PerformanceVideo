@@ -105,7 +105,7 @@ export function DatabasePanel() {
             <option value="gt">greater</option>
             <option value="lt">less</option>
           </select>
-          <input value={filterValue} onChange={(event) => setFilterValue(event.target.value)} placeholder="Filter" className="rounded-xl border border-line bg-panel px-3 py-2 text-sm" />
+          <input value={filterValue} onChange={(event) => setFilterValue(event.target.value)} placeholder={filterColumn ? "Filter" : "Search all columns"} className="rounded-xl border border-line bg-panel px-3 py-2 text-sm" />
           <select value={sortColumn} onChange={(event) => setSortColumn(event.target.value)} className="rounded-xl border border-line bg-panel px-3 py-2 text-sm">
             <option value="">Sort</option>
             {columns.map((column) => (
@@ -120,7 +120,7 @@ export function DatabasePanel() {
             <input type="checkbox" checked={reveal} onChange={(event) => setReveal(event.target.checked)} />
             Reveal secrets
           </label>
-          <button type="button" className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void load(0)}>
+          <button type="button" className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => { setOffset(0); void load(0); }}>
             Apply
           </button>
           <button
@@ -169,8 +169,8 @@ export function DatabasePanel() {
           </table>
         </div>
         <div className="mt-3 flex gap-2">
-          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={() => { const next = Math.max(0, offset - 50); setOffset(next); void load(next); }}>Previous</button>
-          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={() => { const next = offset + 50; setOffset(next); void load(next); }}>Next</button>
+          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" disabled={offset === 0} onClick={() => { const next = Math.max(0, offset - 50); setOffset(next); void load(next); }}>Previous</button>
+          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" disabled={offset + rows.length >= total} onClick={() => { const next = offset + 50; setOffset(next); void load(next); }}>Next</button>
         </div>
         {selected ? (
           <div className="mt-4 rounded-2xl border border-line p-4">
@@ -186,7 +186,15 @@ export function DatabasePanel() {
                   type="button"
                   className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
                   onClick={() => {
-                    const changes = JSON.parse(draft) as Record<string, string>;
+                    let changes: Record<string, string>;
+                    try {
+                      const parsed = JSON.parse(draft) as unknown;
+                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("row");
+                      changes = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, value == null ? "" : String(value)]));
+                    } catch {
+                      setError("That row is not valid JSON.");
+                      return;
+                    }
                     void adminUpdateRow({ data: { table, key: selected.key, changes, confirm: editPhrase } }).then((result) => {
                       setError(result.error ?? "");
                       if (!result.error) {

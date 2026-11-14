@@ -35,6 +35,7 @@ import { DevicePalette } from "@/components/device-palette";
 import { InstanceDock } from "@/components/instance-dock";
 import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } from "@/components/orthogonal-edge";
 import { instanceDockSide } from "@/lib/layout/instance-dock";
+import { placeClearOf, type ScreenRect } from "@/lib/layout/place-clear";
 import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
@@ -458,6 +459,7 @@ export function FlowCanvas({
   const [inside, setInside] = useState<{ equipmentId: number; label: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mapSlot, setMapSlot] = useState<HTMLDivElement | null>(null);
+  const attrAnchor = useRef<HTMLSpanElement>(null);
 
   const signalColors = useMemo(() => signalMap(catalog), [catalog]);
   const [commandSlot, setCommandSlot] = useState<HTMLElement | null>(null);
@@ -466,6 +468,37 @@ export function FlowCanvas({
   useEffect(() => {
     setCommandSlot(document.getElementById("shell-commands"));
     setGearBar(window.localStorage.getItem("pv-gear-bar") === "show");
+  }, []);
+
+  useEffect(() => {
+    const place = () => {
+      const anchor = attrAnchor.current;
+      const attr = document.querySelector<HTMLElement>(".react-flow__attribution");
+      if (!anchor || !attr) return;
+      const box = anchor.getBoundingClientRect();
+      const left = `${box.left}px`;
+      const top = `${box.top}px`;
+      if (attr.style.position === "fixed" && attr.style.left === left && attr.style.top === top) return;
+      attr.style.position = "fixed";
+      attr.style.left = left;
+      attr.style.top = top;
+      attr.style.right = "auto";
+      attr.style.bottom = "auto";
+      attr.style.margin = "0";
+      attr.style.zIndex = "30";
+      attr.style.transform = "none";
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    const footer = attrAnchor.current?.parentElement;
+    if (footer) observer.observe(footer);
+    window.addEventListener("resize", place);
+    const later = window.setTimeout(place, 400);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.clearTimeout(later);
+    };
   }, []);
 
   function toggleGearBar() {
@@ -1238,6 +1271,16 @@ export function FlowCanvas({
     .filter(Boolean)
     .join(" · ");
 
+  const pinGuard: ScreenRect | null = (() => {
+    const node = nodes.find((item) => item.selected);
+    const flow = flowRef.current;
+    if (!node || !flow) return null;
+    const size = nodeBox(node);
+    const origin = flow.flowToScreenPosition({ x: node.position.x, y: node.position.y });
+    const far = flow.flowToScreenPosition({ x: node.position.x + size.width, y: node.position.y + size.height });
+    return { x: origin.x, y: origin.y, w: Math.max(1, far.x - origin.x), h: Math.max(1, far.y - origin.y) };
+  })();
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {commandSlot
@@ -1432,12 +1475,10 @@ export function FlowCanvas({
           {gearBar ? null : <p className="shrink-0 text-xs text-muted">Right-click the canvas to add gear.</p>}
           {titleLine ? <p className="truncate text-xs text-muted">{titleLine}</p> : null}
         </div>
-        <div className={`flex min-h-0 flex-1 ${dockSide === "side" ? "flex-row" : "flex-col"}`}>
-        <div ref={canvasFrame} className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {pendingGroup ? (
           <form
             onSubmit={commitGroup}
-            className="absolute top-3 left-3 z-30 flex flex-wrap items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 shadow-sm"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2"
           >
             <label className="text-sm">
               Group name
@@ -1459,7 +1500,7 @@ export function FlowCanvas({
         {systemFor ? (
           <form
             onSubmit={(event) => void commitSystem(event)}
-            className="absolute top-3 left-3 z-30 w-80 rounded-2xl border border-line bg-panel p-4 shadow-lg"
+            className="shrink-0 border-b border-line bg-panel p-4"
           >
             <p className="text-sm font-semibold">Save group as a system</p>
             <p className="mt-1 text-xs text-muted">
@@ -1509,6 +1550,9 @@ export function FlowCanvas({
             </div>
           </form>
         ) : null}
+        <div className={`flex min-h-0 flex-1 ${dockSide === "side" ? "flex-row" : "flex-col"}`}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div ref={canvasFrame} className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         <div className="absolute inset-0" onPointerDownCapture={onCanvasPointerDown} onClickCapture={onCanvasClickCapture}>
           <RouteContext.Provider value={routes}>
           <RouteBoxContext.Provider value={boxes}>
@@ -1605,7 +1649,6 @@ export function FlowCanvas({
           >
             <JackProbe onChange={onMeasuredJacks} />
             <Background gap={18} size={1} color="#3a362f" />
-            <Controls />
             {mapSlot
               ? createPortal(
                   <MiniMap
@@ -1631,32 +1674,6 @@ export function FlowCanvas({
                     className="pointer-events-none rounded-xl border-2 border-dashed border-[#a8a296]"
                     style={{ position: "absolute", left: frame.x, top: frame.y, width: frame.w, height: frame.h }}
                   >
-                    <div className="pointer-events-auto absolute -top-3 left-3 flex gap-1">
-                      <button
-                        type="button"
-                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
-                        onClick={() => {
-                          setShowGroups((current) => current.filter((item) => item.id !== group.id));
-                          setHint(`${group.name} ungrouped. The boxes stay.`);
-                        }}
-                      >
-                        {group.name} · ungroup
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
-                        onClick={(event) => showPatch(group.name, group.nodeIds, event.clientX, event.clientY)}
-                      >
-                        Patch list
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
-                        onClick={() => openSystem(group)}
-                      >
-                        Save as system
-                      </button>
-                    </div>
                   </div>
                 );
               })}
@@ -1732,6 +1749,7 @@ export function FlowCanvas({
         ) : null}
         {patchPop ? (
           <PatchPop
+            avoid={pinGuard}
             pop={patchPop}
             rows={patchRows(
               nodes,
@@ -1755,6 +1773,7 @@ export function FlowCanvas({
         ) : null}
         {menu?.kind === "pane" ? (
           <GearMenu
+            avoid={pinGuard}
             menu={menu}
             equipment={catalog.equipment}
             onClose={() => setMenu(null)}
@@ -1765,7 +1784,7 @@ export function FlowCanvas({
           />
         ) : null}
         {menu?.kind === "node" ? (
-          <FixedMenu x={menu.x} y={menu.y} title={selectedNodes.length > 1 ? `${selectedNodes.length} boxes` : "This box"}>
+          <FixedMenu avoid={pinGuard} x={menu.x} y={menu.y} title={selectedNodes.length > 1 ? `${selectedNodes.length} boxes` : "This box"}>
             {selectedNodes.length > 1 ? (
               <>
                 <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-paper" onClick={() => { startGroup(); setMenu(null); }}>
@@ -1822,6 +1841,7 @@ export function FlowCanvas({
         ) : null}
         {menu?.kind === "edge" ? (
           <EdgeMenu
+            avoid={pinGuard}
             menu={menu}
             edge={edges.find((edge) => edge.id === menu.edgeId) ?? null}
             onChange={(patch) => patchEdge(menu.edgeId, patch)}
@@ -1830,7 +1850,35 @@ export function FlowCanvas({
           />
         ) : null}
         </div>
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel px-3 py-2 text-ink">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line bg-panel px-3 py-2 text-ink">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              <button type="button" aria-label="Zoom in" className="rounded-md border border-line px-2 py-1 text-sm" onClick={() => flowRef.current?.zoomIn()}>+</button>
+              <button type="button" aria-label="Zoom out" className="rounded-md border border-line px-2 py-1 text-sm" onClick={() => flowRef.current?.zoomOut()}>−</button>
+              <button type="button" aria-label="Fit drawing" className="rounded-md border border-line px-2 py-1 text-xs" onClick={() => flowRef.current?.fitView()}>Fit</button>
+            </div>
+            {showGroups.map((group) => (
+              <div key={group.id} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="rounded-full border border-line px-2 py-1 text-xs font-semibold"
+                  onClick={() => {
+                    setShowGroups((current) => current.filter((item) => item.id !== group.id));
+                    setHint(`${group.name} ungrouped. The boxes stay.`);
+                  }}
+                >
+                  {group.name} · ungroup
+                </button>
+                <button type="button" className="rounded-full border border-line px-2 py-1 text-xs" onClick={(event) => showPatch(group.name, group.nodeIds, event.clientX, event.clientY)}>
+                  Patch list
+                </button>
+                <button type="button" className="rounded-full border border-line px-2 py-1 text-xs" onClick={() => openSystem(group)}>
+                  Save as system
+                </button>
+              </div>
+            ))}
+            <span ref={attrAnchor} className="inline-block h-4 w-16 shrink-0" aria-hidden="true" />
+          </div>
           <div className="min-w-0">
             {drawingId != null && !readOnly ? (
               confirmDelete ? (
@@ -1864,6 +1912,7 @@ export function FlowCanvas({
             ref={setMapSlot}
             className="drawing-map relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border border-line bg-paper sm:h-28 sm:w-44"
           />
+        </div>
         </div>
         {active && sheet === "draw" ? (
           <InstanceDock
@@ -1983,6 +2032,7 @@ function PatchPop({
   pop,
   rows,
   filename,
+  avoid,
   onOpen,
   onEdit,
   onRemove,
@@ -1991,12 +2041,13 @@ function PatchPop({
   pop: { x: number; y: number; label: string };
   rows: string[][];
   filename: string;
+  avoid: ScreenRect | null;
   onOpen: () => void;
   onEdit?: () => void;
   onRemove?: () => void;
   onClose: () => void;
 }) {
-  const point = menuPoint(pop.x, pop.y, 420, 360);
+  const point = menuPoint(pop.x, pop.y, 420, 360, avoid);
   const body = rows.slice(1);
   return (
     <div
@@ -2434,16 +2485,13 @@ function groupFrame(members: EquipmentNode[]) {
   return { x: minX - 20, y: minY - 28, w: maxX - minX + 40, h: maxY - minY + 48 };
 }
 
-function menuPoint(x: number, y: number, width = 280, height = 280) {
+function menuPoint(x: number, y: number, width = 280, height = 280, avoid: ScreenRect | null = null) {
   if (typeof window === "undefined") return { left: x, top: y };
-  return {
-    left: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
-    top: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
-  };
+  return placeClearOf(x, y, width, height, window.innerWidth, window.innerHeight, avoid);
 }
 
-function FixedMenu({ x, y, title, children }: { x: number; y: number; title: string; children: ReactNode }) {
-  const point = menuPoint(x, y, 240, 160);
+function FixedMenu({ x, y, title, avoid, children }: { x: number; y: number; title: string; avoid: ScreenRect | null; children: ReactNode }) {
+  const point = menuPoint(x, y, 240, 160, avoid);
   return (
     <div
       className="fixed z-40 w-60 rounded-xl border border-line bg-panel p-2 shadow-lg"
@@ -2459,17 +2507,19 @@ function FixedMenu({ x, y, title, children }: { x: number; y: number; title: str
 function EdgeMenu({
   menu,
   edge,
+  avoid,
   onChange,
   onRemove,
   onClose,
 }: {
   menu: { x: number; y: number };
   edge: CableEdge | null;
+  avoid: ScreenRect | null;
   onChange: (patch: Partial<CableData>) => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const point = menuPoint(menu.x, menu.y, 260, 240);
+  const point = menuPoint(menu.x, menu.y, 260, 240, avoid);
   if (!edge) return null;
   return (
     <div
@@ -2648,15 +2698,17 @@ function GearStrip({ equipment, onPick }: { equipment: EquipmentRow[]; onPick: (
 function GearMenu({
   menu,
   equipment,
+  avoid,
   onPick,
   onClose,
 }: {
   menu: { x: number; y: number; flowX: number; flowY: number };
   equipment: EquipmentRow[];
+  avoid: ScreenRect | null;
   onPick: (item: EquipmentRow) => void;
   onClose: () => void;
 }) {
-  const point = menuPoint(menu.x, menu.y, 560, 320);
+  const point = menuPoint(menu.x, menu.y, 560, 320, avoid);
   return (
     <div
       className="fixed z-40 w-[34rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-line bg-panel shadow-lg"

@@ -18,6 +18,7 @@ function AdminPage() {
   const [admin, setAdmin] = useState<boolean | null>(null);
   const [tab, setTab] = useState<Tab>("users");
   const [audit, setAudit] = useState<Awaited<ReturnType<typeof adminAudit>> | null>(null);
+  const [auditQuery, setAuditQuery] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -83,6 +84,12 @@ function AdminPage() {
           {tab === "database" ? <DatabasePanel /> : null}
           {tab === "audit" ? (
             <div className="mt-6 overflow-x-auto">
+              <input
+                value={auditQuery}
+                onChange={(event) => setAuditQuery(event.target.value)}
+                placeholder="Filter the audit log"
+                className="mb-3 w-full max-w-md rounded-xl border border-line bg-panel px-3 py-2 text-sm"
+              />
               <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
@@ -93,7 +100,16 @@ function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(audit?.rows ?? []).map((row) => (
+                  {(audit?.rows ?? [])
+                    .filter((row) => {
+                      const query = auditQuery.trim().toLowerCase();
+                      if (!query) return true;
+                      return [row.actorEmail, row.actorId, row.action, row.detail, row.targetType, row.targetId]
+                        .join(" ")
+                        .toLowerCase()
+                        .includes(query);
+                    })
+                    .map((row) => (
                     <tr key={row.id} className="border-b border-line">
                       <td className="py-2 pr-3 text-muted">{row.createdAt.slice(0, 19)}</td>
                       <td className="py-2 pr-3">{row.actorEmail || row.actorId}</td>

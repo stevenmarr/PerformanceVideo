@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { requireAdmin, writeAudit } from "@/lib/admin/access";
+import { studioOwnerLocked } from "@/lib/admin/studio-owner";
 import { normalizePorts } from "@/lib/admin/ports";
 import { issuePasswordReset } from "@/lib/auth/account-store";
 import { fromSql } from "@/lib/queryable";
@@ -238,7 +239,10 @@ export const adminSetRole = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const opened = await requireAdmin(context.userId);
     if (!opened) return { error: "Not an admin." };
+    const named = await opened.sql<{ username: string }>`select coalesce(username, '') as username from "user" where id = ${data.userId}`;
     if (data.role !== "admin") {
+      const locked = studioOwnerLocked(named[0]?.username);
+      if (locked) return { error: locked };
       const others = await opened.sql<{ count: number }>`
         select count(*)::int as count from "user" where role = 'admin' and disabled = false and id <> ${data.userId}
       `;
@@ -269,6 +273,9 @@ export const adminSetDisabled = createServerFn({ method: "POST" })
     if (!opened) return { error: "Not an admin." };
     if (data.userId === opened.actor.id && data.disabled) return { error: "You cannot disable your own account." };
     if (data.disabled) {
+      const named = await opened.sql<{ username: string }>`select coalesce(username, '') as username from "user" where id = ${data.userId}`;
+      const locked = studioOwnerLocked(named[0]?.username);
+      if (locked) return { error: locked };
       const others = await opened.sql<{ count: number }>`
         select count(*)::int as count from "user"
         where role = 'admin' and disabled = false and id <> ${data.userId}
@@ -292,9 +299,13 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
     const opened = await requireAdmin(context.userId);
     if (!opened) return { error: "Not an admin." };
     if (data.userId === opened.actor.id) return { error: "You cannot delete your own account." };
-    const people = await opened.sql<{ email: string; role: string }>`select email, role from "user" where id = ${data.userId}`;
+    const people = await opened.sql<{ email: string; role: string; username: string }>`
+      select email, role, coalesce(username, '') as username from "user" where id = ${data.userId}
+    `;
     const person = people[0];
     if (!person) return { error: "That account was not found." };
+    const locked = studioOwnerLocked(person.username);
+    if (locked) return { error: locked };
     if (data.confirm !== person.email) return { error: "Type the account email to confirm." };
     if (person.role === "admin") {
       const others = await opened.sql<{ count: number }>`
