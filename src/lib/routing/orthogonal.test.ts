@@ -1,33 +1,61 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isOrthogonal, routeEdges, type RouteBox, type RouteEnd } from "./orthogonal.ts";
+import { isOrthogonal, routeEdges, segmentHitsBox, type RouteBox, type RouteEnd, type RoutePoint } from "./orthogonal.ts";
+
+function misses(points: RoutePoint[], box: RouteBox): boolean {
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1];
+    const point = points[index];
+    if (prev && point && segmentHitsBox(prev, point, box)) return false;
+  }
+  return true;
+}
+
+function sharesARun(first: RoutePoint[], second: RoutePoint[]): boolean {
+  for (let i = 1; i < first.length; i += 1) {
+    const a = first[i - 1];
+    const b = first[i];
+    if (!a || !b) continue;
+    for (let j = 1; j < second.length; j += 1) {
+      const c = second[j - 1];
+      const d = second[j];
+      if (!c || !d) continue;
+      if (a.x === b.x && c.x === d.x && a.x === c.x) {
+        const overlap = Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y));
+        if (overlap > 18) return true;
+      }
+      if (a.y === b.y && c.y === d.y && a.y === c.y) {
+        const overlap = Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x));
+        if (overlap > 18) return true;
+      }
+    }
+  }
+  return false;
+}
 
 describe("orthogonal routing", () => {
-  it("keeps bends at 90 degrees, separates lanes, and misses a box in the middle", () => {
+  it("lands on each jack, turns at 90 degrees, and misses a box in the middle", () => {
     const boxes: RouteBox[] = [
-      { id: "a", x: 0, y: 0, w: 80, h: 40 },
-      { id: "b", x: 400, y: 0, w: 80, h: 40 },
+      { id: "a", x: 0, y: 0, w: 80, h: 120 },
+      { id: "b", x: 400, y: 0, w: 80, h: 120 },
       { id: "block", x: 180, y: 0, w: 80, h: 80 },
     ];
     const ends: RouteEnd[] = [
-      { edgeId: "e1", sourceId: "a", targetId: "b", x1: 80, y1: 20, x2: 400, y2: 20 },
-      { edgeId: "e2", sourceId: "a", targetId: "b", x1: 80, y1: 20, x2: 400, y2: 48 },
+      { edgeId: "e1", sourceId: "a", targetId: "b", x1: 80, y1: 40, x2: 400, y2: 40 },
+      { edgeId: "e2", sourceId: "a", targetId: "b", x1: 80, y1: 72, x2: 400, y2: 104 },
     ];
     const routes = routeEdges(boxes, ends);
     const first = routes.get("e1") ?? [];
     const second = routes.get("e2") ?? [];
+    assert.deepEqual(first[0], { x: 80, y: 40 });
+    assert.deepEqual(first[first.length - 1], { x: 400, y: 40 });
+    assert.deepEqual(second[0], { x: 80, y: 72 });
+    assert.deepEqual(second[second.length - 1], { x: 400, y: 104 });
     assert.equal(isOrthogonal(first), true);
     assert.equal(isOrthogonal(second), true);
-    const bend = (points: { x: number }[]) => points[1]?.x;
-    assert.notEqual(bend(first), bend(second));
-    for (const points of [first, second]) {
-      for (let index = 1; index < points.length; index += 1) {
-        const prev = points[index - 1];
-        const point = points[index];
-        if (!prev || !point || prev.x !== point.x) continue;
-        assert.ok(point.x <= 180 || point.x >= 260);
-      }
-    }
+    assert.equal(misses(first, boxes[2] as RouteBox), true);
+    assert.equal(misses(second, boxes[2] as RouteBox), true);
+    assert.equal(sharesARun(first, second), false);
   });
 
   it("routes a few hundred edges quickly and keeps the same bends when an unrelated box moves", () => {
@@ -56,5 +84,27 @@ describe("orthogonal routing", () => {
     boxes.push({ id: "extra", x: 20, y: 5000, w: 40, h: 40 });
     const again = routeEdges(boxes, ends);
     assert.equal(again.get("e0-0")?.[1]?.x, routes.get("e0-0")?.[1]?.x);
+  });
+
+  it("fans two cables that leave the same jack and does not cut back through a node", () => {
+    const boxes: RouteBox[] = [
+      { id: "s", x: 400, y: 0, w: 120, h: 160 },
+      { id: "t", x: 0, y: 200, w: 120, h: 160 },
+    ];
+    const ends: RouteEnd[] = [
+      { edgeId: "a", sourceId: "s", targetId: "t", x1: 520, y1: 40, x2: 0, y2: 240 },
+      { edgeId: "b", sourceId: "s", targetId: "t", x1: 520, y1: 40, x2: 0, y2: 280 },
+    ];
+    const routes = routeEdges(boxes, ends);
+    const first = routes.get("a") ?? [];
+    const second = routes.get("b") ?? [];
+    assert.deepEqual(first[0], { x: 520, y: 40 });
+    assert.deepEqual(second[0], { x: 520, y: 40 });
+    assert.deepEqual(first[first.length - 1], { x: 0, y: 240 });
+    assert.deepEqual(second[second.length - 1], { x: 0, y: 280 });
+    assert.equal(isOrthogonal(first), true);
+    assert.equal(sharesARun(first, second), false);
+    assert.equal(misses(first, boxes[0] as RouteBox), true);
+    assert.equal(misses(first, boxes[1] as RouteBox), true);
   });
 });
