@@ -43,7 +43,7 @@ export function NetworkBoard({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Network</h2>
-          <p className="mt-1 max-w-xl text-sm text-muted">Interfaces stay on the drawing. Warnings cover duplicates, masks, gateways, and VLAN mismatches.</p>
+          <p className="mt-1 max-w-xl text-sm text-muted">IPv4 and IPv6 stay on the drawing. Warnings cover duplicates, masks, gateways, and VLAN mismatches.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -109,7 +109,7 @@ export function NetworkBoard({
                   <option value="static">Static</option>
                   <option value="dhcp">DHCP</option>
                 </select>
-                <input value={iface.address} onChange={(event) => update(index, { address: event.target.value })} placeholder="Address" className="rounded-lg border border-line bg-panel px-2 py-1 text-sm" />
+                <input value={iface.address} onChange={(event) => update(index, { address: event.target.value })} placeholder="IPv4 or IPv6" className="rounded-lg border border-line bg-panel px-2 py-1 text-sm" />
                 <input value={iface.cidr ?? ""} onChange={(event) => update(index, { cidr: event.target.value === "" ? null : Number(event.target.value) })} placeholder="CIDR" className="rounded-lg border border-line bg-panel px-2 py-1 text-sm" />
                 <input value={iface.gateway} onChange={(event) => update(index, { gateway: event.target.value })} placeholder="Gateway" className="rounded-lg border border-line bg-panel px-2 py-1 text-sm" />
                 <input value={iface.vlan ?? ""} onChange={(event) => update(index, { vlan: event.target.value === "" ? null : Number(event.target.value) })} placeholder="VLAN" className="rounded-lg border border-line bg-panel px-2 py-1 text-sm" />
