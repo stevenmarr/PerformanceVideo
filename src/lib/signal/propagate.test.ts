@@ -23,4 +23,25 @@ describe("signal propagation", () => {
     assert.ok(result.warnings.some((warning) => warning.code === "broken-path"));
     assert.ok(result.warnings.some((warning) => warning.code === "estimate" && warning.deviceId === "sw"));
   });
+
+  it("names the jacks on each hop and carries a caution from an unverified port", () => {
+    const devices = [
+      deviceTiming({ id: "cam", label: "CAM-1", latencyMs: 0, latencyFrames: 0, estimate: false, format: "" }),
+      deviceTiming({ id: "sw", label: "SW-1", latencyMs: 0, latencyFrames: 0, estimate: false, format: "" }),
+    ];
+    const result = propagate("cam", devices, [
+      {
+        id: "c1",
+        source: "cam",
+        target: "sw",
+        format: "",
+        fromJack: "SDI Out 1",
+        toJack: "Unverified port (unverified)",
+        caution: "Unverified input: Unverified port (unverified)",
+      },
+    ]);
+    const path = result.paths.find((item) => item.deviceId === "sw");
+    assert.equal(path?.via, "CAM-1 SDI Out 1 → SW-1 Unverified port (unverified)");
+    assert.match(path?.caution ?? "", /Unverified input/);
+  });
 });

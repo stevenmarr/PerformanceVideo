@@ -35,7 +35,9 @@ import { DevicePalette } from "@/components/device-palette";
 import { InstanceDock } from "@/components/instance-dock";
 import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } from "@/components/orthogonal-edge";
 import { instanceDockSide } from "@/lib/layout/instance-dock";
+import { groupFrameBox, GROUP_LABEL_INSET } from "@/lib/layout/group-label";
 import { placeClearOf, type ScreenRect } from "@/lib/layout/place-clear";
+import { cableCaution, jackCaution, jackName } from "@/lib/sheets/jacks";
 import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
@@ -1265,6 +1267,7 @@ export function FlowCanvas({
   const patchEdges = focusIds ? edges.filter((edge) => focusIds.has(edge.source) || focusIds.has(edge.target)) : edges;
   const patch = patchRows(nodes, patchEdges);
   const pull = pullRows(nodes);
+  const pullCables = pullCableRows(nodes, edges);
   const fileSlug = slugName(name);
   const patchSlug = patchFocus ? `${fileSlug}-${slugName(patchFocus.label)}-patch.csv` : `${fileSlug}-patch.csv`;
   const titleLine = [title.event, title.location, title.date, title.drawnBy, title.version ? `v${title.version}` : ""]
@@ -1401,12 +1404,19 @@ export function FlowCanvas({
               format: node.data.format ?? "",
             }),
           )}
-          edges={edges.map((edge) => ({
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
-            format: edge.data?.signalFormat || edge.data?.signal || "",
-          }))}
+          edges={edges.map((edge) => {
+            const from = pinOf(nodes, edge.source, edge.sourceHandle);
+            const to = pinOf(nodes, edge.target, edge.targetHandle);
+            return {
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              format: edge.data?.signalFormat || edge.data?.signal || "",
+              fromJack: jackName(from),
+              toJack: jackName(to),
+              caution: cableCaution(from, to),
+            };
+          })}
           onTiming={(id, patch) => {
             setNodes((current) =>
               current.map((node) =>
@@ -1674,6 +1684,13 @@ export function FlowCanvas({
                     className="pointer-events-none rounded-xl border-2 border-dashed border-[#a8a296]"
                     style={{ position: "absolute", left: frame.x, top: frame.y, width: frame.w, height: frame.h }}
                   >
+                    <span
+                      className="absolute max-w-[calc(100%-1rem)] truncate text-[11px] font-semibold tracking-wide text-ink"
+                      style={{ left: 8, top: GROUP_LABEL_INSET, lineHeight: "16px" }}
+                      title={group.name}
+                    >
+                      {group.name}
+                    </span>
                   </div>
                 );
               })}
@@ -1701,6 +1718,7 @@ export function FlowCanvas({
             title={title}
             onTitle={(next) => setTitle(next)}
             rows={sheet === "patch" ? patch : pull}
+            cableRows={sheet === "pull" ? pullCables : undefined}
             filename={sheet === "patch" ? patchSlug : `${fileSlug}-pull.csv`}
             focusLabel={sheet === "patch" ? patchFocus?.label : undefined}
             onClearFocus={() => setPatchFocus(null)}
@@ -1708,7 +1726,7 @@ export function FlowCanvas({
             onPatch={applyCableChange}
             onCable={applyCableSpec}
             onApplyCsv={applyCableFile}
-            issues={patchIssues(nodes, edges)}
+            issues={sheet === "patch" ? patchIssues(nodes, edges) : []}
             patchJson={JSON.stringify(patchDocument(name, patchConnections(nodes, edges)), null, 2)}
             patchCsv={connectionsToCsv(patchConnections(nodes, edges))}
             onImportJson={(text) => {
@@ -1944,12 +1962,15 @@ function patchConnections(nodes: EquipmentNode[], edges: CableEdge[]): PatchConn
     const source = nodes.find((node) => node.id === edge.source);
     const target = nodes.find((node) => node.id === edge.target);
     const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
+    const to = target?.data.pins.find((pin) => pin.id === edge.targetHandle);
     return {
       id: edge.id,
       sourceDevice: source?.data.unitId || edge.source,
       sourcePort: edge.sourceHandle ?? "",
+      sourceJack: jackName(from),
       destinationDevice: target?.data.unitId || edge.target,
       destinationPort: edge.targetHandle ?? "",
+      destinationJack: jackName(to),
       signalType: from?.signal || edge.data?.signal || "",
       signalFormat: edge.data?.signalFormat ?? "",
       cableType: edge.data?.cableType ?? "",
@@ -1967,8 +1988,10 @@ function patchIssues(nodes: EquipmentNode[], edges: CableEdge[]): string[] {
       ports.push({
         deviceId: node.data.unitId || node.id,
         portId: pin.id ?? "",
+        name: jackName(pin),
         signal: pin.signal,
         direction: pin.direction === "output" ? "output" : "input",
+        caution: jackCaution(pin),
       });
     }
   }
@@ -1987,6 +2010,7 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
     "Input jack",
     "Cable",
     "Cable ID",
+    "Note",
   ];
   const body = edges.map((edge) => {
     const source = nodes.find((node) => node.id === edge.source);
@@ -2004,6 +2028,7 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
       to?.label ?? "",
       formatCable(edge.data?.cableType ?? "", edge.data?.length ?? "", edge.data?.throwdown ?? ""),
       edge.id,
+      cableCaution(from, to),
     ];
   });
   return [header, ...body];
@@ -2115,6 +2140,25 @@ function pullRows(nodes: EquipmentNode[]): string[][] {
   return [["Quantity", "Model", "Unit IDs"], ...list.map((row) => [String(row.ids.length), row.model, row.ids.join(", ")])];
 }
 
+function pullCableRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
+  const header = ["From", "Output jack", "To", "Input jack", "Cable", "Note"];
+  const body = edges.map((edge) => {
+    const source = nodes.find((node) => node.id === edge.source);
+    const target = nodes.find((node) => node.id === edge.target);
+    const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
+    const to = target?.data.pins.find((pin) => pin.id === edge.targetHandle);
+    return [
+      source?.data.unitId || source?.data.model || edge.source,
+      jackName(from),
+      target?.data.unitId || target?.data.model || edge.target,
+      jackName(to),
+      formatCable(edge.data?.cableType ?? "", edge.data?.length ?? "", edge.data?.throwdown ?? ""),
+      cableCaution(from, to),
+    ];
+  });
+  return [header, ...body];
+}
+
 function ListSheet({
   kind,
   title,
@@ -2132,6 +2176,7 @@ function ListSheet({
   issues = [],
   patchJson,
   patchCsv,
+  cableRows,
 }: {
   kind: "patch" | "pull";
   title: DrawingTitle;
@@ -2149,6 +2194,7 @@ function ListSheet({
   issues?: string[];
   patchJson?: string;
   patchCsv?: string;
+  cableRows?: string[][];
 }) {
   const header = rows[0] ?? [];
   const source = rows.slice(1);
@@ -2168,8 +2214,8 @@ function ListSheet({
           <h2 className="text-lg font-semibold">{kind === "patch" ? (focusLabel ? `Patch · ${focusLabel}` : "Patch") : "Pull list"}</h2>
           <p className="mt-1 max-w-xl text-sm text-muted">
             {kind === "patch"
-              ? "Each cable is one connection: source port, destination port, signal, and cable. Warnings sit above the table."
-              : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it. Click a column to sort."}
+              ? "Each cable names the jack printed on the box. A note means that jack is unverified or its count was never stated."
+              : "Quantity is how many of that model are on the drawing. The cable pull under it uses the same jack names. A system counts as one, not the boxes inside it."}
           </p>
           {issues.length ? (
             <ul className="mt-2 max-w-xl space-y-1 text-sm text-danger">
@@ -2204,7 +2250,12 @@ function ListSheet({
           <button
             type="button"
             className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
-            onClick={() => downloadCsv(filename, [header, ...body])}
+            onClick={() =>
+              downloadCsv(
+                filename,
+                cableRows && cableRows.length > 1 ? [header, ...body, [], ...cableRows] : [header, ...body],
+              )
+            }
           >
             Download CSV
           </button>
@@ -2288,7 +2339,7 @@ function ListSheet({
                 <tr key={index} className="border-t border-line">
                   {row.map((cell, cellIndex) =>
                       header[cellIndex] === "Cable ID" ? null : (
-                      <td key={cellIndex} className="px-3 py-2 align-top">
+                      <td key={cellIndex} className={`px-3 py-2 align-top ${header[cellIndex] === "Note" && cell ? "text-danger" : ""}`}>
                         {kind === "patch" && onPatch && nodes ? (
                           <PatchCell row={row} index={cellIndex} nodes={nodes} onPatch={onPatch} onCable={onCable} />
                         ) : (
@@ -2303,6 +2354,40 @@ function ListSheet({
           </table>
         </div>
       )}
+      {cableRows ? (
+        <div className="mt-8">
+          <h3 className="text-base font-semibold">Cable pull</h3>
+          <p className="mt-1 max-w-xl text-sm text-muted">
+            One row per run. The jack names match the drawing, and a note marks an unverified or unknown-count port.
+          </p>
+          {cableRows.length < 2 ? (
+            <p className="mt-3 text-sm text-muted">No cables yet.</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto rounded-xl border border-line">
+              <table className="w-full min-w-[40rem] text-left text-sm">
+                <thead className="bg-panel text-xs tracking-[0.12em] text-muted uppercase">
+                  <tr>
+                    {cableRows[0].map((cell) => (
+                      <th key={cell} className="px-3 py-2 font-semibold">{cell}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cableRows.slice(1).map((row, index) => (
+                    <tr key={index} className="border-t border-line">
+                      {row.map((cell, cellIndex) => (
+                        <td key={cellIndex} className={`px-3 py-2 align-top ${cableRows[0][cellIndex] === "Note" && cell ? "text-danger" : ""}`}>
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2482,7 +2567,7 @@ function groupFrame(members: EquipmentNode[]) {
     maxX = Math.max(maxX, node.position.x + size.width);
     maxY = Math.max(maxY, node.position.y + size.height);
   }
-  return { x: minX - 20, y: minY - 28, w: maxX - minX + 40, h: maxY - minY + 48 };
+  return groupFrameBox(minX, minY, maxX, maxY);
 }
 
 function menuPoint(x: number, y: number, width = 280, height = 280, avoid: ScreenRect | null = null) {
