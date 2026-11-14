@@ -291,11 +291,13 @@ if (typeof window === "undefined") {
       await ensureDesignAdmin(fromSql(sql), process.env);
       const { readdir, readFile } = await import("node:fs/promises");
       const { join } = await import("node:path");
-      const { upsertCatalog } = await import("../../../scripts/catalog-import.mjs");
+      const { applyDatasheetPorts, upsertCatalog } = await import("../../../scripts/catalog-import.mjs");
+      const { datasheetPortOverlay } = await import("../../../scripts/datasheet-ports.mjs");
       const dir = join(process.cwd(), "data", "catalog");
       const names = (await readdir(dir)).filter((name) => name.endsWith(".json") && name !== "schema.json").sort();
       for (const name of names) {
         const catalog = JSON.parse(await readFile(join(dir, name), "utf8"));
+        if (name === "devices.json") catalog.devices = applyDatasheetPorts(catalog.devices, datasheetPortOverlay);
         const imported = await upsertCatalog(
           (text: string, params?: unknown[]) => sql.query(text, params ?? []),
           catalog,

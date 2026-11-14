@@ -68,6 +68,40 @@ export function pinsFromPorts(ports) {
   return pins;
 }
 
+/**
+ * Replace identity-only port lists with a datasheet overlay.
+ * Every overlay entry must cite a source URL. Counts must be positive
+ * integers or null. Devices that are not in the overlay are unchanged.
+ */
+export function applyDatasheetPorts(devices, overlay) {
+  const byId = new Map(overlay.map((item) => [item.id, item]));
+  const seen = new Set();
+  return devices.map((device) => {
+    const patch = byId.get(device.id);
+    if (!patch) return device;
+    if (seen.has(device.id)) throw new Error(`Duplicate datasheet patch ${device.id}`);
+    seen.add(device.id);
+    if (!Array.isArray(patch.sources) || patch.sources.length === 0 || patch.sources.some((item) => !item?.url)) {
+      throw new Error(`${device.id} datasheet patch has no source URL`);
+    }
+    if (!Array.isArray(patch.ports) || patch.ports.length === 0) {
+      throw new Error(`${device.id} datasheet patch has no ports`);
+    }
+    for (const item of patch.ports) {
+      if (item.count != null && (!Number.isInteger(item.count) || item.count < 1)) {
+        throw new Error(`${device.id} ${item.id} count is not a positive integer or null`);
+      }
+    }
+    return {
+      ...device,
+      port_data_confidence: patch.port_data_confidence,
+      ports: patch.ports,
+      notes: [device.notes, patch.notes].filter(Boolean).join("\n"),
+      sources: [...(device.sources ?? []), ...patch.sources],
+    };
+  });
+}
+
 export function catalogRows(catalog) {
   const devices = Array.isArray(catalog?.devices) ? catalog.devices : [];
   const errors = [];

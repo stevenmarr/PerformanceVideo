@@ -8,8 +8,9 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { upsertCatalog } from "./catalog-import.mjs";
+import { applyDatasheetPorts, upsertCatalog } from "./catalog-import.mjs";
 import { companionIdentityCatalog } from "./companion-identity-source.mjs";
+import { datasheetPortOverlay } from "./datasheet-ports.mjs";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -24,6 +25,7 @@ try {
   const query = async (text, params = []) => (await pool.query(text, params)).rows;
   for (const name of names) {
     const catalog = JSON.parse(await readFile(join(root, name), "utf8"));
+    if (name === "devices.json") catalog.devices = applyDatasheetPorts(catalog.devices, datasheetPortOverlay);
     const result = await upsertCatalog(query, catalog, name.replace(/\.json$/, ""));
     console.log(`[catalog] ${name} ${result.status} ${result.count} devices`);
   }

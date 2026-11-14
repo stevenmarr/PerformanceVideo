@@ -1,0 +1,330 @@
+// @ts-nocheck
+/**
+ * Port counts read from official datasheets on 2026-11-14.
+ * A count is set only when the cited sheet states a number.
+ * Ranges and card-dependent maxima stay in notes with count null.
+ */
+
+function port(fields) {
+  return {
+    max_format: null,
+    convertible: false,
+    optional: false,
+    hot_pluggable_card: null,
+    control_protocols: [],
+    notes: "",
+    confidence: "high",
+    ...fields,
+  };
+}
+
+function source(url, title, notes) {
+  return { url, title, retrieved: "2026-11-14", kind: "datasheet-pdf", notes };
+}
+
+export const datasheetPortOverlay = [
+  {
+    id: "barco.event-master-e2",
+    port_data_confidence: "high",
+    notes:
+      "Ports are the published E2 Gen 2 (NGS-4U-V2) connector mix from the Barco spec sheet, not a custom card load. A different input or output card set changes these counts. The sheet also says up to 16 4K inputs and up to 8 4K outputs; those are processing capacities, not extra connectors.",
+    sources: [
+      source(
+        "https://assets.barco.com/m/6c92faa3d7d32df9/original/E2-Gen-2-en-Spec-sheet.pdf",
+        "Barco E2 Gen 2 spec sheet",
+        "Video inputs: 16x SD/HD/3G/6G/12G, 12x HDMI 2.0, 12x DisplayPort 1.2. Video outputs: 4x SDI, 13x HDMI, 1x DisplayPort. Genlock input/loop. S3D sync 4x DIN in, 2x DIN out.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "12G-SDI In", direction: "in", signal_type: "sdi-12g", connector: "bnc", count: 16, max_format: "12G-SDI" }),
+      port({ id: "hdmi-in", name: "HDMI 2.0 In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 12, max_format: "HDMI 2.0 600 MHz" }),
+      port({ id: "dp-in", name: "DisplayPort 1.2 In", direction: "in", signal_type: "displayport", connector: "displayport", count: 12, max_format: "DisplayPort 1.2 600 MHz" }),
+      port({ id: "sdi-out", name: "12G-SDI Out", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 4, max_format: "12G-SDI" }),
+      port({ id: "hdmi-out", name: "HDMI Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 13, max_format: "HDMI 600 MHz" }),
+      port({ id: "dp-out", name: "DisplayPort Out", direction: "out", signal_type: "displayport", connector: "displayport", count: 1, max_format: "DisplayPort 660 MHz" }),
+      port({ id: "ref-in", name: "Genlock In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "ref-loop", name: "Genlock Loop", direction: "out", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "s3d-in", name: "S3D Sync In", direction: "in", signal_type: "framelock", connector: "din", count: 4 }),
+      port({ id: "s3d-out", name: "S3D Sync Out", direction: "out", signal_type: "framelock", connector: "din", count: 2 }),
+    ],
+  },
+  {
+    id: "barco.event-master-s3-4k",
+    port_data_confidence: "medium",
+    notes:
+      "Counts are the fixed S3-4K configuration on the Barco spec sheet. That sheet says the empty-chassis / build-to-order version replaces this fixed mix, so a BTO unit can differ. Those variable ranges are not entered as counts.",
+    sources: [
+      source(
+        "https://assets.barco.com/m/663dfa0f62601d99/original/S3-4K-en-Spec-sheet.pdf",
+        "Barco S3-4K spec sheet",
+        "Inputs: 4x SD/HD/3G SDI, 4x HDMI 1.4a, 4x DisplayPort 1.1. Outputs: 4x SD/HD/3G SDI, 4x HDMI 1.4a, 2x HDMI 1.4a multiviewer. Genlock input/loop.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "3G-SDI In", direction: "in", signal_type: "sdi-3g", connector: "bnc", count: 4 }),
+      port({ id: "hdmi-in", name: "HDMI 1.4 In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 4, max_format: "HDMI 1.4a" }),
+      port({ id: "dp-in", name: "DisplayPort 1.1 In", direction: "in", signal_type: "displayport", connector: "displayport", count: 4 }),
+      port({ id: "sdi-out", name: "3G-SDI Out", direction: "out", signal_type: "sdi-3g", connector: "bnc", count: 4 }),
+      port({ id: "hdmi-out", name: "HDMI 1.4 Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 4 }),
+      port({ id: "hdmi-mv", name: "HDMI Multiviewer", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 2 }),
+      port({ id: "ref-in", name: "Genlock In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "ref-loop", name: "Genlock Loop", direction: "out", signal_type: "ref", connector: "bnc", count: 1 }),
+    ],
+  },
+  {
+    id: "barco.event-master-s3-4k-jr",
+    port_data_confidence: "high",
+    notes:
+      "The S3-4K Jr spec sheet lists these connectors and does not list SDI outputs. No SDI output count is stored.",
+    sources: [
+      source(
+        "https://assets.barco.com/m/1f517ccad3e59577/original/S3-4K-Jr-en-Spec-sheet.pdf",
+        "Barco S3-4K Jr spec sheet",
+        "Inputs: 4x SD/HD/3G SDI, 2x HDMI 1.4a, 2x DisplayPort 1.1. Outputs: 4x HDMI 1.4a and 2x HDMI 1.4a multiviewer.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-in", name: "3G-SDI In", direction: "in", signal_type: "sdi-3g", connector: "bnc", count: 4 }),
+      port({ id: "hdmi-in", name: "HDMI 1.4 In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 2 }),
+      port({ id: "dp-in", name: "DisplayPort 1.1 In", direction: "in", signal_type: "displayport", connector: "displayport", count: 2 }),
+      port({ id: "hdmi-out", name: "HDMI 1.4 Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 4 }),
+      port({ id: "hdmi-mv", name: "HDMI Multiviewer", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 2 }),
+    ],
+  },
+  {
+    id: "brompton.tessera-sx40",
+    port_data_confidence: "high",
+    notes:
+      "Each of the four 10G outputs auto-switches between its copper and fiber connector. Those are not eight simultaneous feeds.",
+    sources: [
+      source(
+        "https://www.bromptontech.com/wp-content/uploads/2025/07/Brompton-SX40-Data-Sheet-Feb2025-EN.pdf",
+        "Brompton Tessera SX40 data sheet, February 2025",
+        "One HDMI 2.0b input. One 12G-SDI input and reclocked thru. Four 10GBASE-T outputs and four 10GBASE-LR fiber outputs that auto-switch per output. Two Gigabit management ports. DMX in and thru. Sync in and thru.",
+      ),
+    ],
+    ports: [
+      port({ id: "hdmi-in", name: "HDMI 2.0 In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 1, max_format: "4096x2160" }),
+      port({ id: "sdi-in", name: "12G-SDI In", direction: "in", signal_type: "sdi-12g", connector: "bnc", count: 1, max_format: "12G-SDI 4096x2160" }),
+      port({ id: "sdi-thru", name: "12G-SDI Thru", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1 }),
+      port({ id: "eth-10g", name: "10G Ethernet Out", direction: "out", signal_type: "ethernet", connector: "ethercon", count: 4 }),
+      port({ id: "fiber-10g", name: "10G Fiber Out", direction: "out", signal_type: "fiber-sfp", connector: "opticalcon-duo", count: 4, notes: "Pairs with the copper outputs. Each output auto-switches between copper and fiber." }),
+      port({ id: "mgmt", name: "Management Ethernet", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 2 }),
+      port({ id: "dmx-in", name: "DMX In", direction: "in", signal_type: "other", connector: "xlr-5", count: 1 }),
+      port({ id: "dmx-thru", name: "DMX Thru", direction: "out", signal_type: "other", connector: "xlr-5", count: 1 }),
+      port({ id: "ref-in", name: "Sync In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "ref-thru", name: "Sync Thru", direction: "out", signal_type: "ref", connector: "bnc", count: 1 }),
+    ],
+  },
+  {
+    id: "brompton.tessera-s8",
+    port_data_confidence: "high",
+    notes: "The S8 data sheet lists eight 1G Ethernet outputs and does not list fiber outputs. No fiber count is stored.",
+    sources: [
+      source(
+        "https://www.bromptontech.com/wp-content/uploads/2025/07/Brompton-S8-Data-Sheet-Mar2025-EN.pdf",
+        "Brompton Tessera S8 data sheet, March 2025",
+        "One HDMI 2.0 input. One 12G-SDI input and reclocked thru. Eight 1 Gigabit Ethernet outputs.",
+      ),
+    ],
+    ports: [
+      port({ id: "hdmi-in", name: "HDMI 2.0 In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 1, max_format: "4096x2160" }),
+      port({ id: "sdi-in", name: "12G-SDI In", direction: "in", signal_type: "sdi-12g", connector: "bnc", count: 1 }),
+      port({ id: "sdi-thru", name: "12G-SDI Thru", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1 }),
+      port({ id: "eth-1g", name: "1G Ethernet Out", direction: "out", signal_type: "ethernet", connector: "ethercon", count: 8 }),
+      port({ id: "mgmt", name: "Management Ethernet", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 2 }),
+      port({ id: "dmx-in", name: "DMX In", direction: "in", signal_type: "other", connector: "xlr-5", count: 1 }),
+      port({ id: "dmx-thru", name: "DMX Thru", direction: "out", signal_type: "other", connector: "xlr-5", count: 1 }),
+      port({ id: "ref-in", name: "Sync In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "ref-thru", name: "Sync Thru", direction: "out", signal_type: "ref", connector: "bnc", count: 1 }),
+    ],
+  },
+  {
+    id: "roe.sx40",
+    port_data_confidence: "high",
+    notes:
+      "ROE's SX-40 page identifies this as the Brompton Tessera SX40. Connector counts are taken from the Brompton SX40 data sheet, not from a separate ROE rear-panel drawing.",
+    sources: [
+      source(
+        "https://www.bromptontech.com/wp-content/uploads/2025/07/Brompton-SX40-Data-Sheet-Feb2025-EN.pdf",
+        "Brompton Tessera SX40 data sheet, February 2025",
+        "Same connector list as brompton.tessera-sx40.",
+      ),
+      {
+        url: "https://www.roevisual.com/en/products/sx-40-led-processing-platform",
+        title: "ROE Visual SX-40 LED processing platform",
+        retrieved: "2026-11-13",
+        kind: "product-page",
+        notes: "Identifies the ROE SX-40 platform as the Brompton Tessera SX40. Does not itself list connector counts.",
+      },
+    ],
+    ports: [
+      port({ id: "hdmi-in", name: "HDMI 2.0 In", direction: "in", signal_type: "hdmi", connector: "hdmi-a", count: 1 }),
+      port({ id: "sdi-in", name: "12G-SDI In", direction: "in", signal_type: "sdi-12g", connector: "bnc", count: 1 }),
+      port({ id: "sdi-thru", name: "12G-SDI Thru", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1 }),
+      port({ id: "eth-10g", name: "10G Ethernet Out", direction: "out", signal_type: "ethernet", connector: "ethercon", count: 4 }),
+      port({ id: "fiber-10g", name: "10G Fiber Out", direction: "out", signal_type: "fiber-sfp", connector: "opticalcon-duo", count: 4, notes: "Auto-switches with the copper outputs." }),
+      port({ id: "mgmt", name: "Management Ethernet", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 2 }),
+      port({ id: "dmx-in", name: "DMX In", direction: "in", signal_type: "other", connector: "xlr-5", count: 1 }),
+      port({ id: "dmx-thru", name: "DMX Thru", direction: "out", signal_type: "other", connector: "xlr-5", count: 1 }),
+      port({ id: "ref-in", name: "Sync In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "ref-thru", name: "Sync Thru", direction: "out", signal_type: "ref", connector: "bnc", count: 1 }),
+    ],
+  },
+  {
+    id: "panasonic.aw-ue150",
+    port_data_confidence: "high",
+    notes: "Optical output repeats the 12G-SDI output. The spec sheet says the camera does not accept an optical input.",
+    sources: [
+      source(
+        "https://pro-av.panasonic.net/en/products/aw-ue150/pdf/ue150_spec.pdf",
+        "Panasonic AW-UE150 specifications PDF",
+        "HDMI 2.0 x1. 12G-SDI OUT BNC x1. 3G-SDI OUT BNC x1. MONI OUT BNC x1. SFP+ optical output. G/L IN BNC. LAN RJ-45. RS-422 RJ-45. 3.5 mm mic/line.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-12g", name: "12G-SDI Out", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1, max_format: "2160p59.94" }),
+      port({ id: "sdi-3g", name: "3G-SDI Out", direction: "out", signal_type: "sdi-3g", connector: "bnc", count: 1 }),
+      port({ id: "sdi-mon", name: "Monitor SDI Out", direction: "out", signal_type: "sdi-hd", connector: "bnc", count: 1 }),
+      port({ id: "hdmi-out", name: "HDMI 2.0 Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 1 }),
+      port({ id: "sfp", name: "Optical Out", direction: "out", signal_type: "fiber-sfp", connector: "sfp-plus", count: 1, notes: "Same picture as 12G-SDI. Output only." }),
+      port({ id: "ref-in", name: "Genlock In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "lan", name: "LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+      port({ id: "rs422", name: "RS-422", direction: "bidirectional", signal_type: "rs-422", connector: "rj45", count: 1 }),
+      port({ id: "audio", name: "Mic/Line In", direction: "in", signal_type: "audio-analog", connector: "trs-3.5", count: 1 }),
+    ],
+  },
+  {
+    id: "panasonic.aw-ue160",
+    port_data_confidence: "high",
+    notes: "Counts follow the interface line on the official AW-UE160 brochure. LAN is not given a count on that line, so it is not stored.",
+    sources: [
+      source(
+        "https://pro-av.panasonic.net/en/download/brochure/pdf/aw-ue160.pdf",
+        "Panasonic AW-UE160 brochure",
+        "I/F: Fiber (SFP+), 12G-SDI, 2 x 3G-SDI, HDMI, 2 x XLR, USB 3.0, G/L IN.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-12g", name: "12G-SDI Out", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1 }),
+      port({ id: "sdi-3g", name: "3G-SDI Out", direction: "out", signal_type: "sdi-3g", connector: "bnc", count: 2 }),
+      port({ id: "hdmi-out", name: "HDMI Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 1 }),
+      port({ id: "sfp", name: "Optical", direction: "out", signal_type: "fiber-sfp", connector: "sfp-plus", count: 1 }),
+      port({ id: "audio", name: "XLR Audio In", direction: "in", signal_type: "audio-analog", connector: "xlr-3", count: 2 }),
+      port({ id: "usb", name: "USB 3.0", direction: "bidirectional", signal_type: "usb", connector: "usb-a", count: 1 }),
+      port({ id: "ref-in", name: "Genlock In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+    ],
+  },
+  {
+    id: "sony.brc-am7",
+    port_data_confidence: "high",
+    notes: "SDI OUT2 is 3G/HD only. The spec sheet does not give it a 12G count.",
+    sources: [
+      source(
+        "https://pro.sony/ue_US/pdf/products/ptz-network-cameras/brc-am7",
+        "Sony BRC-AM7 specifications",
+        "SDI OUT1 BNC x1 12G/6G/3G/HD. SDI OUT2 BNC x1 3G/HD. HDMI Type-A x1. SFP+ x1. XLR-3 x2. Genlock BNC x1. TC BNC x1 input. VISCA in and out. LAN x1.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-out-1", name: "SDI Out 1", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1, max_format: "12G-SDI 2160p59.94" }),
+      port({ id: "sdi-out-2", name: "SDI Out 2", direction: "out", signal_type: "sdi-3g", connector: "bnc", count: 1, max_format: "3G-SDI 1080p" }),
+      port({ id: "hdmi-out", name: "HDMI Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 1 }),
+      port({ id: "sfp", name: "Optical Out", direction: "out", signal_type: "fiber-sfp", connector: "sfp-plus", count: 1 }),
+      port({ id: "audio-xlr", name: "Audio In", direction: "in", signal_type: "audio-analog", connector: "xlr-3", count: 2 }),
+      port({ id: "audio-mini", name: "Mic In", direction: "in", signal_type: "audio-analog", connector: "trs-3.5", count: 1 }),
+      port({ id: "ref-in", name: "Genlock In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "tc-in", name: "Timecode In", direction: "in", signal_type: "timecode-ltc", connector: "bnc", count: 1 }),
+      port({ id: "visca-in", name: "VISCA In", direction: "in", signal_type: "rs-422", connector: "rj45", count: 1 }),
+      port({ id: "visca-out", name: "VISCA Out", direction: "out", signal_type: "rs-422", connector: "rj45", count: 1 }),
+      port({ id: "lan", name: "LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+    ],
+  },
+  {
+    id: "sony.ilme-fr7",
+    port_data_confidence: "high",
+    notes: "The manual says the optical connector is output only.",
+    sources: [
+      source(
+        "https://pro.sony/ue_US/pdf/ilme-fr7",
+        "Sony ILME-FR7 specifications",
+        "SDI BNC x1 12G/6G/3G/HD. HDMI Type-A x1. Genlock BNC x1. TC BNC x1 input. SFP+ output. XLR 5-pin x1. LAN x1.",
+      ),
+    ],
+    ports: [
+      port({ id: "sdi-out", name: "12G-SDI Out", direction: "out", signal_type: "sdi-12g", connector: "bnc", count: 1, max_format: "4096x2160" }),
+      port({ id: "hdmi-out", name: "HDMI Out", direction: "out", signal_type: "hdmi", connector: "hdmi-a", count: 1 }),
+      port({ id: "sfp", name: "Optical Out", direction: "out", signal_type: "fiber-sfp", connector: "sfp-plus", count: 1, notes: "Output only." }),
+      port({ id: "audio", name: "Audio In", direction: "in", signal_type: "audio-analog", connector: "xlr-5", count: 1 }),
+      port({ id: "ref-in", name: "Genlock In", direction: "in", signal_type: "ref", connector: "bnc", count: 1 }),
+      port({ id: "tc-in", name: "Timecode In", direction: "in", signal_type: "timecode-ltc", connector: "bnc", count: 1 }),
+      port({ id: "lan", name: "LAN", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+    ],
+  },
+  {
+    id: "grassvalley.ldx-150",
+    port_data_confidence: "high",
+    notes:
+      "BNC A–E are five baseband connectors that the datasheet says can be input or output at 1.5G, 3G, or 12G. They are not stored as five inputs plus five outputs. Base-station (XCU) connector counts are a different device and are not copied onto the camera head.",
+    sources: [
+      source(
+        "https://www.grassvalley.com/wp-content/uploads/2025/01/ldx_100_series_ds-pub-3-0900i-en.pdf",
+        "Grass Valley LDX 100 series datasheet",
+        "Camera connectivity: BNC A to E, input and output, 1.5G, 3G or 12G. Microphone XLR-3. REF/AES BNC. C2IP RJ-45. IP trunk RJ-45. SMPTE ST 304 hybrid fiber.",
+      ),
+    ],
+    ports: [
+      port({
+        id: "bnc-a-e",
+        name: "BNC A–E",
+        direction: "bidirectional",
+        signal_type: "sdi-12g",
+        connector: "bnc",
+        count: 5,
+        notes: "Each connector can be an input or an output. The sheet does not fix which.",
+      }),
+      port({ id: "ref", name: "REF/AES", direction: "bidirectional", signal_type: "ref", connector: "bnc", count: 1, notes: "Reference input, output, or AES." }),
+      port({ id: "mic", name: "Mic In", direction: "in", signal_type: "audio-analog", connector: "xlr-3", count: 1 }),
+      port({ id: "c2ip", name: "C2IP", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+      port({ id: "trunk", name: "IP Trunk", direction: "bidirectional", signal_type: "ethernet", connector: "rj45", count: 1 }),
+      port({ id: "fiber", name: "Hybrid Fiber", direction: "bidirectional", signal_type: "fiber-sfp", connector: "smpte-304", count: 1 }),
+    ],
+  },
+  {
+    id: "grassvalley.k-frame",
+    port_data_confidence: "medium",
+    notes:
+      "Counts are the S-series standard population stated by Grass Valley Japan: 32 inputs and 16 outputs, maximum 80 and 48. The maximum is not stored as the connector count. Output boards are described as 16 dual-channel outputs; the dual BNC wiring is not expanded beyond the stated 16 outputs.",
+    sources: [
+      {
+        url: "https://www.grassvalley.jp/pdt-item/gv_korona_s-series/",
+        title: "Grass Valley Japan, K-Frame S-series",
+        retrieved: "2026-11-14",
+        kind: "product-page",
+        notes: "S-series: standard 32 inputs, maximum 80. Standard 16 outputs, maximum 48. BNC, SD/HD/3G.",
+      },
+    ],
+    ports: [
+      port({
+        id: "sdi-in",
+        name: "SDI In",
+        direction: "in",
+        signal_type: "sdi-3g",
+        connector: "bnc",
+        count: 32,
+        confidence: "medium",
+        notes: "Standard S-series population. Maximum 80 is not a second connector group.",
+      }),
+      port({
+        id: "sdi-out",
+        name: "SDI Out",
+        direction: "out",
+        signal_type: "sdi-3g",
+        connector: "bnc",
+        count: 16,
+        confidence: "medium",
+        notes: "Standard S-series population. Maximum 48 is not a second connector group.",
+      }),
+    ],
+  },
+];
