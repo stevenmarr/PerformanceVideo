@@ -12,8 +12,16 @@ import {
   saveDrawing,
   type DrawingSummary,
 } from "@/lib/drawing.functions";
+import { adminOpenCanvas, adminSaveCanvas } from "@/lib/admin/manage.functions";
 
-export const Route = createFileRoute("/draw")({ component: DrawPage });
+export const Route = createFileRoute("/draw")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    owner: typeof search.owner === "string" ? search.owner : "",
+    drawing: Number(search.drawing) || 0,
+    mode: search.mode === "edit" ? ("edit" as const) : search.mode === "view" ? ("view" as const) : ("" as const),
+  }),
+  component: DrawPage,
+});
 
 type CanvasProps = {
   catalog: Catalog;
@@ -24,10 +32,13 @@ type CanvasProps = {
   onCreate: () => void;
   onDelete: (id: number) => Promise<void>;
   onLibraryChange: () => Promise<void>;
+  readOnly?: boolean;
 };
 
 function DrawPage() {
   const { user, isPending } = useCurrentUserState();
+  const search = Route.useSearch();
+  const adminView = Boolean(search.owner && search.drawing);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [drawings, setDrawings] = useState<DrawingSummary[]>([]);
   const [drawing, setDrawing] = useState<{ id: number | null; name: string; graph: DrawingFile } | null>(null);
@@ -43,6 +54,28 @@ function DrawPage() {
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
+    if (adminView) {
+      void adminOpenCanvas({ data: { userId: search.owner, drawingId: search.drawing } })
+        .then((opened) => {
+          if (cancelled) return;
+          if (!opened) {
+            setError("That drawing is not available.");
+            return;
+          }
+          setCatalog(opened.catalog);
+          setDrawings(opened.drawings.map((item) => ({ ...item, updatedAt: "" })));
+          setDrawing(opened.drawing);
+        })
+        .catch(() => {
+          if (!cancelled) setError("That drawing could not be opened.");
+        });
+      void import("@/components/flow-canvas").then((mod) => {
+        if (!cancelled) setCanvas(() => mod.FlowCanvas);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     Promise.all([getCatalog(), listDrawings()])
       .then(async ([library, list]) => {
         if (cancelled) return;
@@ -70,9 +103,16 @@ function DrawPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, adminView, search.owner, search.drawing]);
 
   async function openDrawing(id: number) {
+    if (adminView) {
+      const opened = await adminOpenCanvas({ data: { userId: search.owner, drawingId: id } });
+      if (!opened) return;
+      setDrawing(opened.drawing);
+      setSession((current) => current + 1);
+      return;
+    }
     const opened = await getDrawing({ data: id });
     if (!opened) return;
     setDrawing({ id: opened.id, name: opened.name, graph: opened.graph });
@@ -98,7 +138,14 @@ function DrawPage() {
           drawing={drawing}
           drawings={drawings}
           onOpen={(id) => void openDrawing(id)}
+          readOnly={search.mode === "view"}
           onSave={async (payload) => {
+            if (search.mode === "view") return { id: payload.id, error: "This drawing is read-only." };
+            if (adminView && search.mode === "edit") {
+              return adminSaveCanvas({
+                data: { userId: search.owner, id: payload.id ?? search.drawing, name: payload.name, graph: payload.graph },
+              });
+            }
             const result = await saveDrawing({ data: payload });
             if (result.id) {
               const list = await listDrawings();

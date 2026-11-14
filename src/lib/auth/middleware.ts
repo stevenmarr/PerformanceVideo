@@ -25,11 +25,26 @@ import { createMiddleware } from "@tanstack/react-start";
  * all. On the auth-on path, use it on every server function that touches
  * per-user data and scope every query by `context.userId`.
  */
+async function sessionContext(bearerToken: string | undefined): Promise<string> {
+  const { assertSameSiteRequest } = await import("./isolation.server");
+  const { requireUserId } = await import("./verify.server");
+  assertSameSiteRequest();
+  return requireUserId(bearerToken);
+}
+
+/** Signed-in user, including someone who still has to change a temporary password. */
+export const sessionMiddleware = createMiddleware({ type: "function" })
+  .client(async ({ next }) => {
+    const { getBearerToken } = await import("./client");
+    return next({ sendContext: { bearerToken: getBearerToken() ?? undefined } });
+  })
+  .server(async ({ next, context }) => {
+    const userId = await sessionContext(context.bearerToken);
+    return next({ context: { userId } });
+  });
+
 export const authMiddleware = createMiddleware({ type: "function" })
   .client(async ({ next }) => {
-    // Live preview (partitioned iframe): the session rides a bearer token, not a
-    // cookie, so forward it to the server. Null when deployed (cookie auth), so
-    // this is a no-op there.
     const { getBearerToken } = await import("./client");
     return next({ sendContext: { bearerToken: getBearerToken() ?? undefined } });
   })
@@ -38,10 +53,8 @@ export const authMiddleware = createMiddleware({ type: "function" })
     // (bearer hook on the client). A plain `./isolation` path was renamed to
     // `isolation.server.ts` — keep this import in sync so image `tsc` resolves
     // it, and so Vite does not ship `@tanstack/react-start/server` to the browser.
-    const { assertSameSiteRequest } = await import("./isolation.server");
-    const { requireUserId } = await import("./verify.server");
-    // Reject scripted cross-site/sibling requests before touching per-user data.
-    assertSameSiteRequest();
-    const userId = await requireUserId(context.bearerToken);
+    const userId = await sessionContext(context.bearerToken);
+    const { assertPasswordChangeAllowed } = await import("./account-gate.server");
+    await assertPasswordChangeAllowed(userId);
     return next({ context: { userId } });
   });

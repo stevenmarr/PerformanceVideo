@@ -16,6 +16,7 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useStore,
   type Connection,
   type Edge,
   type Node,
@@ -25,9 +26,24 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { Catalog, EquipmentRow, Pin } from "@/lib/catalog.functions";
 import { saveSystem, updateSystemGraph } from "@/lib/drawing.functions";
-import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle } from "@/lib/drawing";
-import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
+import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle, NetworkInterface } from "@/lib/drawing";
+import { NetworkBoard } from "@/components/network-board";
+import { SignalBoard } from "@/components/signal-board";
+import { deviceTiming } from "@/lib/signal/propagate";
+import { GearNodeCard, gearNodeSize, jackOffset } from "@/components/gear-node";
+import { DevicePalette } from "@/components/device-palette";
+import { InstanceDock } from "@/components/instance-dock";
+import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } from "@/components/orthogonal-edge";
+import { instanceDockSide } from "@/lib/layout/instance-dock";
+import { groupFrameBox, GROUP_LABEL_INSET } from "@/lib/layout/group-label";
+import { placeClearOf, type ScreenRect } from "@/lib/layout/place-clear";
+import { cableCaution, jackCaution, jackName } from "@/lib/sheets/jacks";
+import { collapseWarnings, warningLine, rowsWithNote } from "@/lib/sheets/warnings";
+import { ShopPrint } from "@/components/shop-print";
+import { routeEdges } from "@/lib/routing/orthogonal";
+import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
+import { connectionsToCsv, parsePatchDocument, patchDocument, validatePatch, type PatchConnection, type PatchPort } from "@/lib/patch/document";
 
 type EquipmentNodeData = {
   equipmentId: number;
@@ -41,10 +57,23 @@ type EquipmentNodeData = {
   color: string;
   pins: Pin[];
   signalColors: Record<string, string>;
+  interfaces?: NetworkInterface[];
+  latencyMs?: number;
+  latencyFrames?: number;
+  latencyEstimate?: boolean;
+  format?: string;
 };
 
 type EquipmentNode = Node<EquipmentNodeData, "equipment">;
-type CableData = { length: string; notes: string; signal: string; cableType: string; throwdown: string };
+type CableData = {
+  length: string;
+  notes: string;
+  signal: string;
+  cableType: string;
+  throwdown: string;
+  signalFormat?: string;
+  label?: string;
+};
 type CableEdge = Edge<CableData>;
 type ShowGroup = DrawingGroup;
 
@@ -161,8 +190,10 @@ function signalMap(catalog: Catalog) {
   return map;
 }
 
+const edgeTypes = { ortho: OrthogonalCable };
+
 function edgeType(style: CableStyle) {
-  return style === "square" ? "step" : "default";
+  return style === "square" ? "ortho" : "default";
 }
 
 function hydrate(file: DrawingFile, catalog: Catalog) {
@@ -192,6 +223,11 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
         color: catalog.deviceTypes.find((type) => type.id === row.deviceTypeId)?.color ?? "#3f3a34",
         pins: row.pins,
         signalColors: colors,
+        interfaces: item.interfaces ?? [],
+        latencyMs: item.latencyMs,
+        latencyFrames: item.latencyFrames,
+        latencyEstimate: item.latencyEstimate,
+        format: item.format ?? "",
       },
     });
   }
@@ -213,6 +249,8 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
         signal,
         cableType: edge.cableType ?? "",
         throwdown: edge.throwdown ?? "",
+        signalFormat: edge.signalFormat ?? "",
+        label: edge.label ?? "",
       },
       label: formatCable(edge.cableType ?? "", edge.length ?? "", edge.throwdown ?? "") || undefined,
       labelStyle: { fill: "#f3efe6", fontSize: 11 },
@@ -244,6 +282,11 @@ function toFile(
       specialNotes: node.data.specialNotes,
       x: node.position.x,
       y: node.position.y,
+      interfaces: node.data.interfaces ?? [],
+      latencyMs: node.data.latencyMs,
+      latencyFrames: node.data.latencyFrames,
+      latencyEstimate: node.data.latencyEstimate,
+      format: node.data.format ?? "",
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -255,13 +298,75 @@ function toFile(
       notes: edge.data?.notes ?? "",
       cableType: edge.data?.cableType ?? "",
       throwdown: edge.data?.throwdown ?? "",
+      signalFormat: edge.data?.signalFormat ?? "",
+      label: edge.data?.label ?? "",
     })),
     groups,
   };
 }
 
+function nodeExtras(node: EquipmentNode) {
+  return { ip: node.data.ip, notes: node.data.specialNotes, unit: node.data.unitId };
+}
+
 function nodeBox(node: EquipmentNode) {
-  return gearNodeSize(node.data.pins, { ip: node.data.ip, notes: node.data.specialNotes });
+  const measuredWidth = node.measured?.width;
+  const measuredHeight = node.measured?.height;
+  const sized = gearNodeSize(node.data.pins, nodeExtras(node));
+  return {
+    width: measuredWidth && measuredWidth > 0 ? measuredWidth : sized.width,
+    height: measuredHeight && measuredHeight > 0 ? measuredHeight : sized.height,
+  };
+}
+
+type JackPoint = { key: string; x: number; y: number };
+
+function sameJacks(a: JackPoint[], b: JackPoint[]): boolean {
+  return a.length === b.length && a.every((item, index) => item.key === b[index]?.key && item.x === b[index]?.x && item.y === b[index]?.y);
+}
+
+function JackProbe({ onChange }: { onChange: (jacks: JackPoint[]) => void }) {
+  const jacks = useStore((state) => {
+    const found: JackPoint[] = [];
+    for (const node of state.nodeLookup.values()) {
+      const bounds = node.internals.handleBounds;
+      const handles = [...(bounds?.source ?? []), ...(bounds?.target ?? [])];
+      for (const handle of handles) {
+        if (!handle.id) continue;
+        const originX = node.internals.positionAbsolute.x + handle.x;
+        const originY = node.internals.positionAbsolute.y + handle.y;
+        const atRight = handle.position === "right";
+        const atLeft = handle.position === "left";
+        found.push({
+          key: `${node.id}:${handle.id}`,
+          x: atRight ? originX + handle.width : atLeft ? originX : originX + handle.width / 2,
+          y: originY + handle.height / 2,
+        });
+      }
+    }
+    found.sort((a, b) => a.key.localeCompare(b.key));
+    return found;
+  }, sameJacks);
+  useEffect(() => {
+    onChange(jacks);
+  }, [jacks, onChange]);
+  return null;
+}
+
+function fallbackJack(node: EquipmentNode, pinId: string): { x: number; y: number } | null {
+  const offset = jackOffset(node.data.pins, pinId, nodeExtras(node));
+  if (!offset) return null;
+  return { x: node.position.x + offset.x, y: node.position.y + offset.y };
+}
+
+function downloadText(filename: string, body: string, type: string) {
+  const blob = new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function downloadCsv(filename: string, rows: string[][]) {
@@ -291,6 +396,7 @@ export function FlowCanvas({
   onCreate,
   onDelete,
   onLibraryChange,
+  readOnly = false,
 }: {
   catalog: Catalog;
   drawing: { id: number | null; name: string; graph: DrawingFile };
@@ -300,6 +406,7 @@ export function FlowCanvas({
   onCreate: () => void;
   onDelete: (id: number) => Promise<void>;
   onLibraryChange: () => Promise<void>;
+  readOnly?: boolean;
 }) {
   const seeded = hydrate(drawing.graph, catalog);
   const [nodes, setNodes, onNodesChange] = useNodesState<EquipmentNode>(seeded.nodes);
@@ -315,11 +422,48 @@ export function FlowCanvas({
   const [name, setName] = useState(drawing.name);
   const [title, setTitle] = useState<DrawingTitle>(drawing.graph.title);
   const [cableStyle, setCableStyle] = useState<CableStyle>(drawing.graph.cableStyle);
+  const [measuredJacks, setMeasuredJacks] = useState<JackPoint[]>([]);
+  const onMeasuredJacks = useCallback((jacks: JackPoint[]) => setMeasuredJacks(jacks), []);
+  const boxes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const size = nodeBox(node);
+        return { id: node.id, x: node.position.x, y: node.position.y, w: size.width, h: size.height };
+      }),
+    [nodes],
+  );
+  const routes = useMemo(() => {
+    if (cableStyle !== "square") return new Map<string, { x: number; y: number }[]>();
+    const jackAt = new Map(measuredJacks.map((jack) => [jack.key, jack]));
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    return routeEdges(
+      boxes,
+      edges.flatMap((edge) => {
+        const source = byId.get(edge.source);
+        const target = byId.get(edge.target);
+        if (!source || !target || !edge.sourceHandle || !edge.targetHandle) return [];
+        const from = jackAt.get(`${edge.source}:${edge.sourceHandle}`) ?? fallbackJack(source, edge.sourceHandle);
+        const to = jackAt.get(`${edge.target}:${edge.targetHandle}`) ?? fallbackJack(target, edge.targetHandle);
+        if (!from || !to) return [];
+        return [{
+          edgeId: edge.id,
+          sourceId: edge.source,
+          targetId: edge.target,
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+        }];
+      }),
+    );
+  }, [boxes, cableStyle, edges, measuredJacks, nodes]);
   const [sheet, setSheet] = useState<"draw" | "patch" | "pull">("draw");
   const [patchFocus, setPatchFocus] = useState<{ label: string; nodeIds: string[] } | null>(null);
   const [patchPop, setPatchPop] = useState<{ x: number; y: number; label: string; nodeIds: string[]; canRemove: boolean } | null>(null);
   const [inside, setInside] = useState<{ equipmentId: number; label: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [mapSlot, setMapSlot] = useState<HTMLDivElement | null>(null);
+  const attrAnchor = useRef<HTMLSpanElement>(null);
 
   const signalColors = useMemo(() => signalMap(catalog), [catalog]);
   const [commandSlot, setCommandSlot] = useState<HTMLElement | null>(null);
@@ -330,6 +474,37 @@ export function FlowCanvas({
     setGearBar(window.localStorage.getItem("pv-gear-bar") === "show");
   }, []);
 
+  useEffect(() => {
+    const place = () => {
+      const anchor = attrAnchor.current;
+      const attr = document.querySelector<HTMLElement>(".react-flow__attribution");
+      if (!anchor || !attr) return;
+      const box = anchor.getBoundingClientRect();
+      const left = `${box.left}px`;
+      const top = `${box.top}px`;
+      if (attr.style.position === "fixed" && attr.style.left === left && attr.style.top === top) return;
+      attr.style.position = "fixed";
+      attr.style.left = left;
+      attr.style.top = top;
+      attr.style.right = "auto";
+      attr.style.bottom = "auto";
+      attr.style.margin = "0";
+      attr.style.zIndex = "30";
+      attr.style.transform = "none";
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    const footer = attrAnchor.current?.parentElement;
+    if (footer) observer.observe(footer);
+    window.addEventListener("resize", place);
+    const later = window.setTimeout(place, 400);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.clearTimeout(later);
+    };
+  }, []);
+
   function toggleGearBar() {
     setGearBar((current) => {
       const next = !current;
@@ -338,8 +513,23 @@ export function FlowCanvas({
     });
   }
 
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
+  const [signalOpen, setSignalOpen] = useState(false);
+  const [activeEdges, setActiveEdges] = useState<string[]>([]);
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const place = useCallback(
-    (item: EquipmentRow, at?: { x: number; y: number }) => {
+    (item: Pick<EquipmentRow, "id" | "deviceType" | "deviceTypeId" | "manufacturer" | "model" | "kind" | "pins">, at?: { x: number; y: number }) => {
       const same = nodes.filter((node) => node.data.equipmentId === item.id);
       const stamp = `${item.deviceType.slice(0, 3).toUpperCase()}-${same.length + 1}`;
       const node: EquipmentNode = {
@@ -358,6 +548,7 @@ export function FlowCanvas({
           color: catalog.deviceTypes.find((type) => type.id === item.deviceTypeId)?.color ?? "#3f3a34",
           pins: item.pins,
           signalColors,
+          interfaces: [],
         },
       };
       setNodes((current) => [...current, node]);
@@ -476,6 +667,7 @@ export function FlowCanvas({
 
   const removeIds = useCallback(
     (nodeIds: string[], edgeIds: string[]) => {
+      if (readOnly) return;
       const doomed = new Set(nodeIds);
       const edgeDoomed = new Set(edgeIds);
       if (doomed.size === 0 && edgeDoomed.size === 0) {
@@ -489,7 +681,7 @@ export function FlowCanvas({
       setMenu(null);
       setHint("Removed from this drawing only. The library model stays.");
     },
-    [setEdges, setNodes],
+    [readOnly, setEdges, setNodes],
   );
 
   const applySelection = useCallback(
@@ -778,6 +970,10 @@ export function FlowCanvas({
   }
 
   async function save() {
+    if (readOnly) {
+      setHint("This drawing is open read-only.");
+      return;
+    }
     if (inside) {
       const row = catalog.equipment.find((item) => item.id === inside.equipmentId);
       const previous = parseSystemGraph(row?.graphJson);
@@ -1039,15 +1235,56 @@ export function FlowCanvas({
   }, [applySelection]);
 
   const active = selectedNodes.length === 1 ? selectedNodes[0] : null;
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === "undefined" ? 1024 : window.innerWidth));
+  useEffect(() => {
+    const apply = () => setViewportWidth(window.innerWidth);
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, []);
+  const dockSide = instanceDockSide(viewportWidth);
+  const canvasFrame = useRef<HTMLDivElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    if (sheet !== "draw") return;
+    const frame = canvasFrame.current;
+    if (!frame) return;
+    const fit = () => {
+      const current = activeRef.current;
+      const flow = flowRef.current;
+      if (!current || !flow) return;
+      const size = nodeBox(current);
+      void flow.fitBounds(
+        { x: current.position.x, y: current.position.y, width: size.width, height: size.height },
+        { padding: 0.45, duration: 0 },
+      );
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(frame);
+    fit();
+    return () => observer.disconnect();
+  }, [active?.id, dockSide, sheet]);
   const focusIds = patchFocus ? new Set(patchFocus.nodeIds) : null;
   const patchEdges = focusIds ? edges.filter((edge) => focusIds.has(edge.source) || focusIds.has(edge.target)) : edges;
   const patch = patchRows(nodes, patchEdges);
   const pull = pullRows(nodes);
+  const pullCables = pullCableRows(nodes, edges);
   const fileSlug = slugName(name);
   const patchSlug = patchFocus ? `${fileSlug}-${slugName(patchFocus.label)}-patch.csv` : `${fileSlug}-patch.csv`;
   const titleLine = [title.event, title.location, title.date, title.drawnBy, title.version ? `v${title.version}` : ""]
     .filter(Boolean)
     .join(" · ");
+
+  const pinGuard: ScreenRect | null = (() => {
+    const node = nodes.find((item) => item.selected);
+    const flow = flowRef.current;
+    if (!node || !flow) return null;
+    const size = nodeBox(node);
+    const origin = flow.flowToScreenPosition({ x: node.position.x, y: node.position.y });
+    const far = flow.flowToScreenPosition({ x: node.position.x + size.width, y: node.position.y + size.height });
+    return { x: origin.x, y: origin.y, w: Math.max(1, far.x - origin.x), h: Math.max(1, far.y - origin.y) };
+  })();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1086,11 +1323,26 @@ export function FlowCanvas({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
-              <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
-                Save
+              {readOnly ? (
+                <span className="shrink-0 rounded-full border border-line px-4 py-2 text-sm">Read only</span>
+              ) : (
+                <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
+                  Save
+                </button>
+              )}
+              {readOnly ? null : (
+                <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
+                  New
+                </button>
+              )}
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setPaletteOpen(true)}>
+                Devices
               </button>
-              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
-                New
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setNetworkOpen(true)}>
+                Network
+              </button>
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setSignalOpen(true)}>
+                Signal
               </button>
               <button
                 type="button"
@@ -1142,17 +1394,103 @@ export function FlowCanvas({
           )
         : null}
       {gearBar ? <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} /> : null}
+      {signalOpen ? (
+        <SignalBoard
+          devices={nodes.map((node) =>
+            deviceTiming({
+              id: node.id,
+              label: node.data.unitId || `${node.data.manufacturer} ${node.data.model}`,
+              latencyMs: node.data.latencyMs,
+              latencyFrames: node.data.latencyFrames,
+              estimate: node.data.latencyEstimate,
+              format: node.data.format ?? "",
+            }),
+          )}
+          edges={edges.map((edge) => {
+            const from = pinOf(nodes, edge.source, edge.sourceHandle);
+            const to = pinOf(nodes, edge.target, edge.targetHandle);
+            return {
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              format: edge.data?.signalFormat || edge.data?.signal || "",
+              fromJack: jackName(from),
+              toJack: jackName(to),
+              caution: cableCaution(from, to),
+            };
+          })}
+          onTiming={(id, patch) => {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        latencyMs: patch.latencyMs ?? node.data.latencyMs,
+                        latencyFrames: patch.latencyFrames ?? node.data.latencyFrames,
+                        latencyEstimate: patch.estimate ?? node.data.latencyEstimate,
+                        format: patch.format ?? node.data.format,
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }}
+          onActive={setActiveEdges}
+          onClose={() => {
+            setSignalOpen(false);
+            setActiveEdges([]);
+          }}
+        />
+      ) : null}
+      {networkOpen ? (
+        <NetworkBoard
+          show={name}
+          rows={nodes.map((node) => ({
+            id: node.id,
+            label: node.data.unitId || `${node.data.manufacturer} ${node.data.model}`,
+            interfaces: node.data.interfaces ?? [],
+          }))}
+          onChange={(id, interfaces) => {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        interfaces,
+                        ip: interfaces.find((item) => item.address)?.address ?? node.data.ip,
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }}
+          onClose={() => setNetworkOpen(false)}
+        />
+      ) : null}
+      <DevicePalette
+        open={paletteOpen && !readOnly}
+        onClose={() => setPaletteOpen(false)}
+        onPlace={(id) => {
+          void adoptCatalogDevice({ data: id }).then((result) => {
+            if (result.equipment) place(result.equipment);
+            else if (result.error) setHint(result.error);
+          });
+        }}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-3 py-1.5">
           <p className="truncate text-sm text-muted">{hint}</p>
           {gearBar ? null : <p className="shrink-0 text-xs text-muted">Right-click the canvas to add gear.</p>}
           {titleLine ? <p className="truncate text-xs text-muted">{titleLine}</p> : null}
         </div>
-        <div className="relative min-h-0 flex-1">
         {pendingGroup ? (
           <form
             onSubmit={commitGroup}
-            className="absolute top-3 left-3 z-30 flex flex-wrap items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 shadow-sm"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2"
           >
             <label className="text-sm">
               Group name
@@ -1174,7 +1512,7 @@ export function FlowCanvas({
         {systemFor ? (
           <form
             onSubmit={(event) => void commitSystem(event)}
-            className="absolute top-3 left-3 z-30 w-80 rounded-2xl border border-line bg-panel p-4 shadow-lg"
+            className="shrink-0 border-b border-line bg-panel p-4"
           >
             <p className="text-sm font-semibold">Save group as a system</p>
             <p className="mt-1 text-xs text-muted">
@@ -1224,61 +1562,37 @@ export function FlowCanvas({
             </div>
           </form>
         ) : null}
-        {active && sheet === "draw" ? (
-          <form
-            className="absolute bottom-3 left-3 z-30 w-72 rounded-2xl border border-ink bg-panel p-4 shadow-lg"
-            onSubmit={(event) => event.preventDefault()}
-          >
-            <p className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">This instance</p>
-            <p className="mt-1 text-sm font-semibold">
-              {active.data.manufacturer} {active.data.model}
-            </p>
-            {active.data.kind === "system" ? (
-              <p className="text-xs text-muted">System. The pull list counts it as one unit.</p>
-            ) : null}
-            <label className="mt-3 block text-sm">
-              Unit ID
-              <input
-                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-                value={active.data.unitId}
-                onChange={(event) => {
-                  const unitId = event.target.value;
-                  patchNode(active.id, { unitId });
-                  const clash = nodes.some((node) => node.id !== active.id && node.data.unitId === unitId && unitId.trim());
-                  if (clash) setHint(`${unitId} is already used on this drawing.`);
-                }}
-              />
-            </label>
-            <label className="mt-2 block text-sm">
-              IP address
-              <input
-                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-                value={active.data.ip}
-                placeholder="192.168.0.175"
-                onChange={(event) => patchNode(active.id, { ip: event.target.value })}
-              />
-            </label>
-            <label className="mt-2 block text-sm">
-              Special notes
-              <input
-                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-                value={active.data.specialNotes}
-                onChange={(event) => patchNode(active.id, { specialNotes: event.target.value })}
-              />
-            </label>
-          </form>
-        ) : null}
+        <div className={`flex min-h-0 flex-1 ${dockSide === "side" ? "flex-row" : "flex-col"}`}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div ref={canvasFrame} className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         <div className="absolute inset-0" onPointerDownCapture={onCanvasPointerDown} onClickCapture={onCanvasClickCapture}>
+          <RouteContext.Provider value={routes}>
+          <RouteBoxContext.Provider value={boxes}>
           <ReactFlow
+            edgeTypes={edgeTypes}
             colorMode="dark"
             nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
+            edges={edges.map((edge) =>
+              activeEdges.includes(edge.id)
+                ? { ...edge, animated: true, style: { ...edge.style, strokeWidth: 4 } }
+                : edge,
+            )}
+            nodesDraggable={!readOnly}
+            nodesConnectable={!readOnly}
+            edgesReconnectable={!readOnly}
+            onNodesChange={(changes) =>
+              onNodesChange(
+                readOnly ? changes.filter((change) => change.type === "select" || change.type === "dimensions") : changes,
+              )
+            }
+            onEdgesChange={(changes) =>
+              onEdgesChange(readOnly ? changes.filter((change) => change.type === "select") : changes)
+            }
+            onConnect={readOnly ? undefined : onConnect}
             isValidConnection={isValidConnection}
             nodeTypes={nodeTypes}
             connectionLineType={cableStyle === "square" ? ConnectionLineType.Step : ConnectionLineType.Bezier}
+            connectionLineComponent={cableStyle === "square" ? JackConnectionLine : undefined}
             onNodeDoubleClick={(_, node) => openInside(node)}
             onInit={(instance) => {
               flowRef.current = instance;
@@ -1293,11 +1607,22 @@ export function FlowCanvas({
             }}
             onDrop={(event) => {
               event.preventDefault();
+              if (readOnly) return;
+              const flow = flowRef.current;
+              if (!flow) return;
+              const point = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+              const catalogId = event.dataTransfer.getData("text/catalog-id");
+              if (catalogId) {
+                void adoptCatalogDevice({ data: catalogId }).then((result) => {
+                  if (result.equipment) place(result.equipment, point);
+                  else if (result.error) setHint(result.error);
+                });
+                return;
+              }
               const id = Number(event.dataTransfer.getData("text/gear-id"));
               const item = catalog.equipment.find((row) => row.id === id);
-              const flow = flowRef.current;
-              if (!item || !flow) return;
-              place(item, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+              if (!item) return;
+              place(item, point);
             }}
             onPaneContextMenu={(event) => {
               event.preventDefault();
@@ -1334,9 +1659,22 @@ export function FlowCanvas({
             panActivationKeyCode="Space"
             zoomOnScroll
           >
+            <JackProbe onChange={onMeasuredJacks} />
             <Background gap={18} size={1} color="#3a362f" />
-            <Controls style={active && sheet === "draw" ? { marginLeft: 300 } : undefined} />
-            <MiniMap pannable zoomable />
+            {mapSlot
+              ? createPortal(
+                  <MiniMap
+                    pannable
+                    zoomable
+                    ariaLabel="Drawing map"
+                    bgColor="var(--color-paper)"
+                    nodeColor="var(--color-ink)"
+                    maskColor="color-mix(in srgb, var(--color-ink) 18%, transparent)"
+                    style={{ width: viewportWidth >= 640 ? 176 : 144, height: viewportWidth >= 640 ? 112 : 96 }}
+                  />,
+                  mapSlot,
+                )
+              : null}
             <ViewportPortal>
               {showGroups.map((group) => {
                 const members = nodes.filter((node) => group.nodeIds.includes(node.id));
@@ -1348,32 +1686,13 @@ export function FlowCanvas({
                     className="pointer-events-none rounded-xl border-2 border-dashed border-[#a8a296]"
                     style={{ position: "absolute", left: frame.x, top: frame.y, width: frame.w, height: frame.h }}
                   >
-                    <div className="pointer-events-auto absolute -top-3 left-3 flex gap-1">
-                      <button
-                        type="button"
-                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
-                        onClick={() => {
-                          setShowGroups((current) => current.filter((item) => item.id !== group.id));
-                          setHint(`${group.name} ungrouped. The boxes stay.`);
-                        }}
-                      >
-                        {group.name} · ungroup
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
-                        onClick={(event) => showPatch(group.name, group.nodeIds, event.clientX, event.clientY)}
-                      >
-                        Patch list
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-xs font-semibold"
-                        onClick={() => openSystem(group)}
-                      >
-                        Save as system
-                      </button>
-                    </div>
+                    <span
+                      className="absolute max-w-[calc(100%-1rem)] truncate text-[11px] font-semibold tracking-wide text-ink"
+                      style={{ left: 8, top: GROUP_LABEL_INSET, lineHeight: "16px" }}
+                      title={group.name}
+                    >
+                      {group.name}
+                    </span>
                   </div>
                 );
               })}
@@ -1392,6 +1711,8 @@ export function FlowCanvas({
               ) : null}
             </ViewportPortal>
           </ReactFlow>
+          </RouteBoxContext.Provider>
+          </RouteContext.Provider>
         </div>
         {sheet !== "draw" ? (
           <ListSheet
@@ -1399,6 +1720,10 @@ export function FlowCanvas({
             title={title}
             onTitle={(next) => setTitle(next)}
             rows={sheet === "patch" ? patch : pull}
+            cableRows={sheet === "pull" ? pullCables : undefined}
+            show={name}
+            printPatch={patch}
+            printCables={pullCables}
             filename={sheet === "patch" ? patchSlug : `${fileSlug}-pull.csv`}
             focusLabel={sheet === "patch" ? patchFocus?.label : undefined}
             onClearFocus={() => setPatchFocus(null)}
@@ -1406,11 +1731,48 @@ export function FlowCanvas({
             onPatch={applyCableChange}
             onCable={applyCableSpec}
             onApplyCsv={applyCableFile}
+            issues={sheet === "patch" ? patchIssues(nodes, edges) : []}
+            patchJson={JSON.stringify(patchDocument(name, patchConnections(nodes, edges)), null, 2)}
+            patchCsv={connectionsToCsv(patchConnections(nodes, edges))}
+            onImportJson={(text) => {
+              let raw: unknown;
+              try {
+                raw = JSON.parse(text);
+              } catch {
+                setHint("That patch file is not JSON.");
+                return;
+              }
+              const parsed = parsePatchDocument(raw);
+              if (parsed.error || !parsed.document) {
+                setHint(parsed.error ?? "That patch file could not be read.");
+                return;
+              }
+              const byId = new Map(parsed.document.connections.map((connection) => [connection.id, connection]));
+              setEdges((current) =>
+                current.map((edge) => {
+                  const connection = byId.get(edge.id);
+                  if (!connection || !edge.data) return edge;
+                  return {
+                    ...edge,
+                    data: {
+                      ...edge.data,
+                      signalFormat: connection.signalFormat,
+                      label: connection.cableLabel,
+                      notes: connection.notes,
+                      length: connection.cableLength,
+                      cableType: connection.cableType,
+                    },
+                  };
+                }),
+              );
+              setHint(`Applied ${parsed.document.connections.length} connections from the patch file.`);
+            }}
             onClose={() => setSheet("draw")}
           />
         ) : null}
         {patchPop ? (
           <PatchPop
+            avoid={pinGuard}
             pop={patchPop}
             rows={patchRows(
               nodes,
@@ -1434,6 +1796,7 @@ export function FlowCanvas({
         ) : null}
         {menu?.kind === "pane" ? (
           <GearMenu
+            avoid={pinGuard}
             menu={menu}
             equipment={catalog.equipment}
             onClose={() => setMenu(null)}
@@ -1444,7 +1807,7 @@ export function FlowCanvas({
           />
         ) : null}
         {menu?.kind === "node" ? (
-          <FixedMenu x={menu.x} y={menu.y} title={selectedNodes.length > 1 ? `${selectedNodes.length} boxes` : "This box"}>
+          <FixedMenu avoid={pinGuard} x={menu.x} y={menu.y} title={selectedNodes.length > 1 ? `${selectedNodes.length} boxes` : "This box"}>
             {selectedNodes.length > 1 ? (
               <>
                 <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-paper" onClick={() => { startGroup(); setMenu(null); }}>
@@ -1501,6 +1864,7 @@ export function FlowCanvas({
         ) : null}
         {menu?.kind === "edge" ? (
           <EdgeMenu
+            avoid={pinGuard}
             menu={menu}
             edge={edges.find((edge) => edge.id === menu.edgeId) ?? null}
             onChange={(patch) => patchEdge(menu.edgeId, patch)}
@@ -1508,37 +1872,135 @@ export function FlowCanvas({
             onClose={() => setMenu(null)}
           />
         ) : null}
-        {drawingId != null ? (
-          <div className="absolute right-3 bottom-3 z-30">
-            {confirmDelete ? (
-              <div className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 text-sm shadow-sm">
-                <span>Delete this drawing? It will not come back.</span>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-line bg-panel px-3 py-2 text-ink">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              <button type="button" aria-label="Zoom in" className="rounded-md border border-line px-2 py-1 text-sm" onClick={() => flowRef.current?.zoomIn()}>+</button>
+              <button type="button" aria-label="Zoom out" className="rounded-md border border-line px-2 py-1 text-sm" onClick={() => flowRef.current?.zoomOut()}>−</button>
+              <button type="button" aria-label="Fit drawing" className="rounded-md border border-line px-2 py-1 text-xs" onClick={() => flowRef.current?.fitView()}>Fit</button>
+            </div>
+            {showGroups.map((group) => (
+              <div key={group.id} className="flex items-center gap-1">
                 <button
                   type="button"
-                  className="font-semibold text-danger"
+                  className="rounded-full border border-line px-2 py-1 text-xs font-semibold"
                   onClick={() => {
-                    const id = drawingId;
-                    setConfirmDelete(false);
-                    void onDelete(id);
+                    setShowGroups((current) => current.filter((item) => item.id !== group.id));
+                    setHint(`${group.name} ungrouped. The boxes stay.`);
                   }}
                 >
-                  Delete
+                  {group.name} · ungroup
                 </button>
-                <button type="button" className="text-muted" onClick={() => setConfirmDelete(false)}>
-                  Cancel
+                <button type="button" className="rounded-full border border-line px-2 py-1 text-xs" onClick={(event) => showPatch(group.name, group.nodeIds, event.clientX, event.clientY)}>
+                  Patch list
+                </button>
+                <button type="button" className="rounded-full border border-line px-2 py-1 text-xs" onClick={() => openSystem(group)}>
+                  Save as system
                 </button>
               </div>
+            ))}
+            <span ref={attrAnchor} className="inline-block h-4 w-16 shrink-0" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            {drawingId != null && !readOnly ? (
+              confirmDelete ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span>Delete this drawing? It will not come back.</span>
+                  <button
+                    type="button"
+                    className="font-semibold text-danger"
+                    onClick={() => {
+                      const id = drawingId;
+                      setConfirmDelete(false);
+                      void onDelete(id);
+                    }}
+                  >
+                    Delete
+                  </button>
+                  <button type="button" className="text-muted" onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="text-xs text-muted underline underline-offset-4" onClick={() => setConfirmDelete(true)}>
+                  Delete drawing
+                </button>
+              )
             ) : (
-              <button type="button" className="text-xs text-muted underline underline-offset-4" onClick={() => setConfirmDelete(true)}>
-                Delete drawing
-              </button>
+              <span className="text-xs text-muted">Drawing map</span>
             )}
           </div>
+          <div
+            ref={setMapSlot}
+            className="drawing-map relative h-24 w-36 shrink-0 overflow-hidden rounded-lg border border-line bg-paper sm:h-28 sm:w-44"
+          />
+        </div>
+        </div>
+        {active && sheet === "draw" ? (
+          <InstanceDock
+            side={dockSide}
+            manufacturer={active.data.manufacturer}
+            model={active.data.model}
+            kind={active.data.kind}
+            unitId={active.data.unitId}
+            ip={active.data.ip}
+            notes={active.data.specialNotes}
+            readOnly={readOnly}
+            onUnitId={(unitId) => {
+              patchNode(active.id, { unitId });
+              const clash = nodes.some((node) => node.id !== active.id && node.data.unitId === unitId && unitId.trim());
+              if (clash) setHint(`${unitId} is already used on this drawing.`);
+            }}
+            onIp={(ip) => patchNode(active.id, { ip })}
+            onNotes={(specialNotes) => patchNode(active.id, { specialNotes })}
+          />
         ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+function patchConnections(nodes: EquipmentNode[], edges: CableEdge[]): PatchConnection[] {
+  return edges.map((edge) => {
+    const source = nodes.find((node) => node.id === edge.source);
+    const target = nodes.find((node) => node.id === edge.target);
+    const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
+    const to = target?.data.pins.find((pin) => pin.id === edge.targetHandle);
+    return {
+      id: edge.id,
+      sourceDevice: source?.data.unitId || edge.source,
+      sourcePort: edge.sourceHandle ?? "",
+      sourceJack: jackName(from),
+      destinationDevice: target?.data.unitId || edge.target,
+      destinationPort: edge.targetHandle ?? "",
+      destinationJack: jackName(to),
+      signalType: from?.signal || edge.data?.signal || "",
+      signalFormat: edge.data?.signalFormat ?? "",
+      cableType: edge.data?.cableType ?? "",
+      cableLength: edge.data?.length ?? "",
+      cableLabel: edge.data?.label ?? "",
+      notes: edge.data?.notes ?? "",
+    };
+  });
+}
+
+function patchIssues(nodes: EquipmentNode[], edges: CableEdge[]): string[] {
+  const ports: PatchPort[] = [];
+  for (const node of nodes) {
+    for (const pin of node.data.pins) {
+      ports.push({
+        deviceId: node.data.unitId || node.id,
+        portId: pin.id ?? "",
+        name: jackName(pin),
+        signal: pin.signal,
+        direction: pin.direction === "output" ? "output" : "input",
+        caution: jackCaution(pin),
+      });
+    }
+  }
+  return validatePatch(patchConnections(nodes, edges), ports).map((issue) => issue.message);
 }
 
 function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
@@ -1553,6 +2015,7 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
     "Input jack",
     "Cable",
     "Cable ID",
+    "Note",
   ];
   const body = edges.map((edge) => {
     const source = nodes.find((node) => node.id === edge.source);
@@ -1570,6 +2033,7 @@ function patchRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
       to?.label ?? "",
       formatCable(edge.data?.cableType ?? "", edge.data?.length ?? "", edge.data?.throwdown ?? ""),
       edge.id,
+      cableCaution(from, to),
     ];
   });
   return [header, ...body];
@@ -1598,6 +2062,7 @@ function PatchPop({
   pop,
   rows,
   filename,
+  avoid,
   onOpen,
   onEdit,
   onRemove,
@@ -1606,12 +2071,13 @@ function PatchPop({
   pop: { x: number; y: number; label: string };
   rows: string[][];
   filename: string;
+  avoid: ScreenRect | null;
   onOpen: () => void;
   onEdit?: () => void;
   onRemove?: () => void;
   onClose: () => void;
 }) {
-  const point = menuPoint(pop.x, pop.y, 420, 360);
+  const point = menuPoint(pop.x, pop.y, 420, 360, avoid);
   const body = rows.slice(1);
   return (
     <div
@@ -1679,6 +2145,25 @@ function pullRows(nodes: EquipmentNode[]): string[][] {
   return [["Quantity", "Model", "Unit IDs"], ...list.map((row) => [String(row.ids.length), row.model, row.ids.join(", ")])];
 }
 
+function pullCableRows(nodes: EquipmentNode[], edges: CableEdge[]): string[][] {
+  const header = ["From", "Output jack", "To", "Input jack", "Cable", "Note"];
+  const body = edges.map((edge) => {
+    const source = nodes.find((node) => node.id === edge.source);
+    const target = nodes.find((node) => node.id === edge.target);
+    const from = source?.data.pins.find((pin) => pin.id === edge.sourceHandle);
+    const to = target?.data.pins.find((pin) => pin.id === edge.targetHandle);
+    return [
+      source?.data.unitId || source?.data.model || edge.source,
+      jackName(from),
+      target?.data.unitId || target?.data.model || edge.target,
+      jackName(to),
+      formatCable(edge.data?.cableType ?? "", edge.data?.length ?? "", edge.data?.throwdown ?? ""),
+      cableCaution(from, to),
+    ];
+  });
+  return [header, ...body];
+}
+
 function ListSheet({
   kind,
   title,
@@ -1692,6 +2177,14 @@ function ListSheet({
   onPatch,
   onCable,
   onApplyCsv,
+  onImportJson,
+  issues = [],
+  patchJson,
+  patchCsv,
+  cableRows,
+  show,
+  printPatch,
+  printCables,
 }: {
   kind: "patch" | "pull";
   title: DrawingTitle;
@@ -1705,11 +2198,29 @@ function ListSheet({
   onPatch?: (edgeId: string, field: PatchField, value: string) => void;
   onCable?: (edgeId: string, spec: { cableType: string; length: string; throwdown: string }) => void;
   onApplyCsv?: (text: string) => void;
+  onImportJson?: (text: string) => void;
+  issues?: string[];
+  patchJson?: string;
+  patchCsv?: string;
+  cableRows?: string[][];
+  show: string;
+  printPatch: string[][];
+  printCables: string[][];
 }) {
   const header = rows[0] ?? [];
   const source = rows.slice(1);
   const [sort, setSort] = useState<{ index: number; dir: "asc" | "desc" }>({ index: 0, dir: "asc" });
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [preview, setPreview] = useState(false);
   const body = [...source].sort((a, b) => compareCells(a[sort.index] ?? "", b[sort.index] ?? "") * (sort.dir === "asc" ? 1 : -1));
+  const noteAt = header.indexOf("Note");
+  const listed = flaggedOnly && kind === "patch" && noteAt >= 0 ? body.filter((row) => (row[noteAt] ?? "").trim()) : body;
+  const cableHeader = cableRows?.[0] ?? [];
+  const cableNote = cableHeader.indexOf("Note");
+  const cableListed = (cableRows ?? []).slice(1).filter((row) => !flaggedOnly || cableNote < 0 || (row[cableNote] ?? "").trim());
+  const collapsed = collapseWarnings(issues);
+  const printedPatch = flaggedOnly ? rowsWithNote(printPatch) : printPatch;
+  const printedCables = flaggedOnly ? rowsWithNote(printCables) : printCables;
 
   function toggleSort(index: number) {
     setSort((current) =>
@@ -1724,9 +2235,17 @@ function ListSheet({
           <h2 className="text-lg font-semibold">{kind === "patch" ? (focusLabel ? `Patch · ${focusLabel}` : "Patch") : "Pull list"}</h2>
           <p className="mt-1 max-w-xl text-sm text-muted">
             {kind === "patch"
-              ? "Read left to right. Change a unit or a jack and the cable moves. The last column stays blank until you assign a cable."
-              : "Quantity is how many of that model are on the drawing. A system counts as one, not the boxes inside it. Click a column to sort."}
+              ? "Each cable names the jack printed on the box. A note means that jack is unverified or its count was never stated."
+              : "Quantity is how many of that model are on the drawing. The cable pull under it uses the same jack names. A system counts as one, not the boxes inside it."}
           </p>
+          {collapsed.length ? (
+            <ul className="mt-2 max-w-xl space-y-1 text-sm text-danger">
+              {collapsed.slice(0, 12).map((issue) => (
+                <li key={issue.text}>{warningLine(issue)}</li>
+              ))}
+              {collapsed.length > 12 ? <li>{collapsed.length - 12} more</li> : null}
+            </ul>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {kind === "patch" && onApplyCsv ? (
@@ -1745,6 +2264,16 @@ function ListSheet({
               />
             </label>
           ) : null}
+          <button
+            type="button"
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${flaggedOnly ? "bg-ink text-paper" : "border border-line"}`}
+            onClick={() => setFlaggedOnly((current) => !current)}
+          >
+            {flaggedOnly ? "All cables" : "Flagged only"}
+          </button>
+          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={() => setPreview(true)}>
+            Print
+          </button>
           {focusLabel && onClearFocus ? (
             <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={onClearFocus}>
               Whole drawing
@@ -1753,10 +2282,49 @@ function ListSheet({
           <button
             type="button"
             className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
-            onClick={() => downloadCsv(filename, [header, ...body])}
+            onClick={() =>
+              downloadCsv(
+                filename,
+                cableRows && cableRows.length > 1 ? [header, ...body, [], ...cableRows] : [header, ...body],
+              )
+            }
           >
             Download CSV
           </button>
+          {patchJson ? (
+            <button
+              type="button"
+              className="rounded-full border border-line px-4 py-2 text-sm"
+              onClick={() => downloadText(filename.replace(/\.csv$/, "") + ".json", patchJson, "application/json")}
+            >
+              Download JSON
+            </button>
+          ) : null}
+          {onImportJson ? (
+            <label className="cursor-pointer rounded-full border border-line px-4 py-2 text-sm">
+              Import JSON
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  void file.text().then((text) => onImportJson(text));
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+          {patchCsv ? (
+            <button
+              type="button"
+              className="rounded-full border border-line px-4 py-2 text-sm"
+              onClick={() => downloadText(filename.replace(/\.csv$/, "") + "-connections.csv", patchCsv, "text/csv")}
+            >
+              Connection CSV
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="mb-4 grid gap-2 sm:grid-cols-5">
@@ -1779,8 +2347,10 @@ function ListSheet({
           </label>
         ))}
       </div>
-      {body.length === 0 ? (
-        <p className="text-sm text-muted">{kind === "patch" ? "No cables yet." : "Nothing placed yet."}</p>
+      {listed.length === 0 ? (
+        <p className="text-sm text-muted">
+          {flaggedOnly && kind === "patch" ? "No flagged cables." : kind === "patch" ? "No cables yet." : "Nothing placed yet."}
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line">
           <table className="w-full min-w-[40rem] text-left text-sm">
@@ -1799,11 +2369,11 @@ function ListSheet({
               </tr>
             </thead>
             <tbody>
-              {body.map((row, index) => (
+              {listed.map((row, index) => (
                 <tr key={index} className="border-t border-line">
                   {row.map((cell, cellIndex) =>
                       header[cellIndex] === "Cable ID" ? null : (
-                      <td key={cellIndex} className="px-3 py-2 align-top">
+                      <td key={cellIndex} className={`px-3 py-2 align-top ${header[cellIndex] === "Note" && cell ? "text-danger" : ""}`}>
                         {kind === "patch" && onPatch && nodes ? (
                           <PatchCell row={row} index={cellIndex} nodes={nodes} onPatch={onPatch} onCable={onCable} />
                         ) : (
@@ -1818,6 +2388,51 @@ function ListSheet({
           </table>
         </div>
       )}
+      {cableRows ? (
+        <div className="mt-8">
+          <h3 className="text-base font-semibold">Cable pull</h3>
+          <p className="mt-1 max-w-xl text-sm text-muted">
+            One row per run. The jack names match the drawing, and a note marks an unverified or unknown-count port.
+          </p>
+          {cableListed.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">{flaggedOnly ? "No flagged cables." : "No cables yet."}</p>
+          ) : (
+            <div className="mt-3 overflow-x-auto rounded-xl border border-line">
+              <table className="w-full min-w-[40rem] text-left text-sm">
+                <thead className="bg-panel text-xs tracking-[0.12em] text-muted uppercase">
+                  <tr>
+                    {cableRows[0].map((cell) => (
+                      <th key={cell} className="px-3 py-2 font-semibold">{cell}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cableListed.map((row, index) => (
+                    <tr key={index} className="border-t border-line">
+                      {row.map((cell, cellIndex) => (
+                        <td key={cellIndex} className={`px-3 py-2 align-top ${cableRows[0][cellIndex] === "Note" && cell ? "text-danger" : ""}`}>
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+      {preview ? (
+        <ShopPrint
+          show={show}
+          title={title}
+          warnings={collapsed}
+          patch={printedPatch}
+          cables={printedCables}
+          flaggedOnly={flaggedOnly}
+          onClose={() => setPreview(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1997,19 +2612,16 @@ function groupFrame(members: EquipmentNode[]) {
     maxX = Math.max(maxX, node.position.x + size.width);
     maxY = Math.max(maxY, node.position.y + size.height);
   }
-  return { x: minX - 20, y: minY - 28, w: maxX - minX + 40, h: maxY - minY + 48 };
+  return groupFrameBox(minX, minY, maxX, maxY);
 }
 
-function menuPoint(x: number, y: number, width = 280, height = 280) {
+function menuPoint(x: number, y: number, width = 280, height = 280, avoid: ScreenRect | null = null) {
   if (typeof window === "undefined") return { left: x, top: y };
-  return {
-    left: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
-    top: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
-  };
+  return placeClearOf(x, y, width, height, window.innerWidth, window.innerHeight, avoid);
 }
 
-function FixedMenu({ x, y, title, children }: { x: number; y: number; title: string; children: ReactNode }) {
-  const point = menuPoint(x, y, 240, 160);
+function FixedMenu({ x, y, title, avoid, children }: { x: number; y: number; title: string; avoid: ScreenRect | null; children: ReactNode }) {
+  const point = menuPoint(x, y, 240, 160, avoid);
   return (
     <div
       className="fixed z-40 w-60 rounded-xl border border-line bg-panel p-2 shadow-lg"
@@ -2025,17 +2637,19 @@ function FixedMenu({ x, y, title, children }: { x: number; y: number; title: str
 function EdgeMenu({
   menu,
   edge,
+  avoid,
   onChange,
   onRemove,
   onClose,
 }: {
   menu: { x: number; y: number };
   edge: CableEdge | null;
+  avoid: ScreenRect | null;
   onChange: (patch: Partial<CableData>) => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const point = menuPoint(menu.x, menu.y, 260, 240);
+  const point = menuPoint(menu.x, menu.y, 260, 240, avoid);
   if (!edge) return null;
   return (
     <div
@@ -2214,15 +2828,17 @@ function GearStrip({ equipment, onPick }: { equipment: EquipmentRow[]; onPick: (
 function GearMenu({
   menu,
   equipment,
+  avoid,
   onPick,
   onClose,
 }: {
   menu: { x: number; y: number; flowX: number; flowY: number };
   equipment: EquipmentRow[];
+  avoid: ScreenRect | null;
   onPick: (item: EquipmentRow) => void;
   onClose: () => void;
 }) {
-  const point = menuPoint(menu.x, menu.y, 560, 320);
+  const point = menuPoint(menu.x, menu.y, 560, 320, avoid);
   return (
     <div
       className="fixed z-40 w-[34rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-line bg-panel shadow-lg"

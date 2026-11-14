@@ -75,7 +75,7 @@ function StudioCounts() {
         <Count label="Drawings" value={drawings ?? undefined} />
       </div>
       <div className="flex flex-wrap gap-4">
-        <Link to="/draw" className="inline-flex rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper">
+        <Link to="/draw" search={{ owner: "", drawing: 0, mode: "" }} className="inline-flex rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper">
           Open Solventum
         </Link>
         <Link to="/library" className="inline-flex py-3 text-sm font-semibold underline underline-offset-4">

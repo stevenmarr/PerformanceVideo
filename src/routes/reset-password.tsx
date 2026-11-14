@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { publicHref } from "@/lib/preview-path-prefix";
-import { authClient } from "@/lib/auth/client";
+import { finishPasswordReset } from "@/lib/auth/account.functions";
 
 export const Route = createFileRoute("/reset-password")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -28,8 +28,8 @@ function ResetPassword() {
     }
     setPending(true);
     try {
-      const result = await authClient.resetPassword({ newPassword: password, token });
-      if (result.error) throw new Error(result.error.message ?? "That link is no longer valid.");
+      const result = await finishPasswordReset({ data: { token, password } });
+      if (!result.ok) throw new Error(result.error ?? "That link is no longer valid.");
       window.location.href = publicHref("/login");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reset the password.");

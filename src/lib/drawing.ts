@@ -8,6 +8,17 @@ export type DrawingTitle = {
   version: string;
 };
 
+export type NetworkInterface = {
+  name: string;
+  mode: "dhcp" | "static";
+  address: string;
+  cidr: number | null;
+  gateway: string;
+  vlan: number | null;
+  mac: string;
+  hostname: string;
+};
+
 export type DrawingNode = {
   id: string;
   equipmentId: number;
@@ -16,6 +27,11 @@ export type DrawingNode = {
   specialNotes: string;
   x: number;
   y: number;
+  interfaces?: NetworkInterface[];
+  latencyMs?: number;
+  latencyFrames?: number;
+  latencyEstimate?: boolean;
+  format?: string;
 };
 
 export type DrawingEdge = {
@@ -28,6 +44,8 @@ export type DrawingEdge = {
   notes: string;
   cableType?: string;
   throwdown?: string;
+  signalFormat?: string;
+  label?: string;
 };
 
 export type DrawingGroup = {
@@ -69,8 +87,19 @@ export function asDrawingFile(raw: unknown): DrawingFile {
       drawnBy: String(title.drawnBy ?? ""),
       version: String(title.version ?? ""),
     },
-    nodes: Array.isArray(file.nodes) ? file.nodes : [],
-    edges: Array.isArray(file.edges) ? file.edges : [],
+    nodes: Array.isArray(file.nodes)
+      ? file.nodes.map((node) => ({
+          ...node,
+          interfaces: Array.isArray(node.interfaces) ? node.interfaces : [],
+        }))
+      : [],
+    edges: Array.isArray(file.edges)
+      ? file.edges.map((edge) => ({
+          ...edge,
+          signalFormat: String(edge.signalFormat ?? ""),
+          label: String(edge.label ?? ""),
+        }))
+      : [],
     groups: Array.isArray(file.groups) ? file.groups : [],
     cableStyle: file.cableStyle === "square" ? "square" : "curve",
   };
