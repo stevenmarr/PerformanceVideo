@@ -25,7 +25,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { Catalog, EquipmentRow, Pin } from "@/lib/catalog.functions";
 import { saveSystem, updateSystemGraph } from "@/lib/drawing.functions";
-import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle } from "@/lib/drawing";
+import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle, NetworkInterface } from "@/lib/drawing";
+import { NetworkBoard } from "@/components/network-board";
 import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
@@ -44,6 +45,7 @@ type EquipmentNodeData = {
   color: string;
   pins: Pin[];
   signalColors: Record<string, string>;
+  interfaces?: NetworkInterface[];
 };
 
 type EquipmentNode = Node<EquipmentNodeData, "equipment">;
@@ -203,6 +205,7 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
         color: catalog.deviceTypes.find((type) => type.id === row.deviceTypeId)?.color ?? "#3f3a34",
         pins: row.pins,
         signalColors: colors,
+        interfaces: item.interfaces ?? [],
       },
     });
   }
@@ -257,6 +260,7 @@ function toFile(
       specialNotes: node.data.specialNotes,
       x: node.position.x,
       y: node.position.y,
+      interfaces: node.data.interfaces ?? [],
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -366,6 +370,7 @@ export function FlowCanvas({
   }
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -397,6 +402,7 @@ export function FlowCanvas({
           color: catalog.deviceTypes.find((type) => type.id === item.deviceTypeId)?.color ?? "#3f3a34",
           pins: item.pins,
           signalColors,
+          interfaces: [],
         },
       };
       setNodes((current) => [...current, node]);
@@ -1145,6 +1151,9 @@ export function FlowCanvas({
               <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setPaletteOpen(true)}>
                 Devices
               </button>
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setNetworkOpen(true)}>
+                Network
+              </button>
               <button
                 type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${gearBar ? "bg-ink text-paper" : "border border-line bg-panel"}`}
@@ -1195,6 +1204,33 @@ export function FlowCanvas({
           )
         : null}
       {gearBar ? <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} /> : null}
+      {networkOpen ? (
+        <NetworkBoard
+          show={name}
+          rows={nodes.map((node) => ({
+            id: node.id,
+            label: node.data.unitId || `${node.data.manufacturer} ${node.data.model}`,
+            interfaces: node.data.interfaces ?? [],
+          }))}
+          onChange={(id, interfaces) => {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        interfaces,
+                        ip: interfaces.find((item) => item.address)?.address ?? node.data.ip,
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }}
+          onClose={() => setNetworkOpen(false)}
+        />
+      ) : null}
       <DevicePalette
         open={paletteOpen && !readOnly}
         onClose={() => setPaletteOpen(false)}
