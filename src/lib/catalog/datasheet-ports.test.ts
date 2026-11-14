@@ -75,6 +75,18 @@ describe("datasheet port overlay", () => {
     assert.equal(count(must("panasonic.av-uhs500"), "sdi-in"), 8);
     assert.equal(count(must("sony.xvs-g1"), "sdi-out"), 12);
     assert.equal(count(must("panasonic.kairos"), "sdi"), null);
+    const xvs9000 = must("sony.xvs-9000");
+    assert.equal(count(xvs9000, "video-in"), null);
+    assert.equal(count(xvs9000, "ac"), 6);
+    assert.equal(count(must("sony.xvs-8000"), "ac"), 4);
+    assert.equal(count(must("sony.xvs-6000"), "ac"), 2);
+    assert.equal(count(must("panasonic.av-hs6000"), "sdi-in"), 32);
+    assert.equal(count(must("panasonic.av-hs6000"), "sdi-out"), 32);
+    assert.equal(count(must("panasonic.av-hs410"), "sdi-in"), 8);
+    assert.equal(count(must("panasonic.av-hs410"), "sdi-out"), 6);
+    assert.equal(count(must("panasonic.av-hs50"), "sdi-out"), 3);
+    assert.equal(count(must("panasonic.av-hsw10"), "hdmi-in"), 2);
+    assert.equal(count(must("panasonic.av-hsw10"), "sdi-in"), 4);
     const schema = JSON.parse(await readFile(new URL("../../../data/catalog/schema.json", import.meta.url), "utf8"));
     const ajv = new Ajv2020({ allErrors: true, strict: false });
     const validate = ajv.compile(schema);

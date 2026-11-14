@@ -34,4 +34,14 @@ Added 2026-11-14 in the second pass:
 
 ROE panel manuals name etherCON data cables and powerCON True1 power cables. They do not state how many of each connector are on a panel, so those panels stay empty.
 
-Still empty: Barco projectors and LED tiles, the other Panasonic PTZ models, the other Sony switchers and PTZ cameras, and Grass Valley frames other than the K-Frame S-series standard population and the LDX 150 head.
+Added 2026-11-14 in the third pass:
+
+| Device | Source | What was counted |
+|---|---|---|
+| Sony XVS-9000, XVS-8000, XVS-7000, XVS-6000 | [XVS system user's guide](https://www.sony.com/electronics/support/res/manuals/5013/ac0fcd23e79e1fe9ad1e3707c87879a1/50135021M.pdf) | Fixed rear panel only. Reference is two loop-through BNCs. One MVS LAN, one utility LAN, one GPI. AC inlets: 6, 4, 4, and 2. Video inputs and outputs are option boards, so the published maxima (160/80, 160/48, 112/48, 64/24) are not stored. |
+| Panasonic AV-HS6000 | [AV-HS6000 specifications](https://pro-av.panasonic.net/en/products/av-hs6000/spec.html) | Mainframe: 32 SDI in, 2 DVI-D in, 32 SDI out (16 lines, two BNCs each), reference, LTC, LAN, panel link, four RS-422, GPI in and two GPI out. The control panel is not included. |
+| Panasonic AV-HS410 | [Switcher comparison specifications](https://pro-av.panasonic.net/en/sales_o/switcher_mixer/spec.pdf) | Standard chassis: 8 SDI in, 1 DVI-D in, 6 SDI out BNCs (five lines, OUT 1 distributed), 1 DVI-D out. Option-slot lines are not stored. |
+| Panasonic AW-HS50 (`panasonic.av-hs50`) | [AW-HS50 specifications](https://pro-av.panasonic.net/en/sales_o/switcher_mixer/aw-hs50/av-hs50_spec.pdf) | 4 SDI in, 1 DVI-D in, 3 SDI out BNCs (OUT 1 is one line on two BNCs), 1 DVI-D out, LAN, one tally/GPI connector. |
+| Panasonic AV-HSW10 | [AV-HSW10 operating instructions](https://pro-av.panasonic.net/manual/pdf/AV-HSW10PJ.EJ_full(DVQP3077ZA)_E.pdf) | 4 SDI in, 2 HDMI in, 2 SDI out, 1 HDMI out, 2 reference BNCs, LAN. SDI IN 1 and HDMI IN 1 exclude each other. SRT and NDI use the LAN jack. |
+
+Still empty: Barco projectors and LED tiles, the other Panasonic PTZ models, the other Sony PTZ cameras, Grass Valley frames other than the K-Frame S-series standard population and the LDX 150 head, and ROE panels.
