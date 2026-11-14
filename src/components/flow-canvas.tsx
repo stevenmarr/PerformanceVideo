@@ -27,6 +27,8 @@ import type { Catalog, EquipmentRow, Pin } from "@/lib/catalog.functions";
 import { saveSystem, updateSystemGraph } from "@/lib/drawing.functions";
 import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle, NetworkInterface } from "@/lib/drawing";
 import { NetworkBoard } from "@/components/network-board";
+import { SignalBoard } from "@/components/signal-board";
+import { deviceTiming } from "@/lib/signal/propagate";
 import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
 import { OrthogonalCable, RouteContext } from "@/components/orthogonal-edge";
@@ -48,6 +50,10 @@ type EquipmentNodeData = {
   pins: Pin[];
   signalColors: Record<string, string>;
   interfaces?: NetworkInterface[];
+  latencyMs?: number;
+  latencyFrames?: number;
+  latencyEstimate?: boolean;
+  format?: string;
 };
 
 type EquipmentNode = Node<EquipmentNodeData, "equipment">;
@@ -210,6 +216,10 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
         pins: row.pins,
         signalColors: colors,
         interfaces: item.interfaces ?? [],
+        latencyMs: item.latencyMs,
+        latencyFrames: item.latencyFrames,
+        latencyEstimate: item.latencyEstimate,
+        format: item.format ?? "",
       },
     });
   }
@@ -265,6 +275,10 @@ function toFile(
       x: node.position.x,
       y: node.position.y,
       interfaces: node.data.interfaces ?? [],
+      latencyMs: node.data.latencyMs,
+      latencyFrames: node.data.latencyFrames,
+      latencyEstimate: node.data.latencyEstimate,
+      format: node.data.format ?? "",
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -400,6 +414,8 @@ export function FlowCanvas({
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [networkOpen, setNetworkOpen] = useState(false);
+  const [signalOpen, setSignalOpen] = useState(false);
+  const [activeEdges, setActiveEdges] = useState<string[]>([]);
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -1183,6 +1199,9 @@ export function FlowCanvas({
               <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setNetworkOpen(true)}>
                 Network
               </button>
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setSignalOpen(true)}>
+                Signal
+              </button>
               <button
                 type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${gearBar ? "bg-ink text-paper" : "border border-line bg-panel"}`}
@@ -1233,6 +1252,49 @@ export function FlowCanvas({
           )
         : null}
       {gearBar ? <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} /> : null}
+      {signalOpen ? (
+        <SignalBoard
+          devices={nodes.map((node) =>
+            deviceTiming({
+              id: node.id,
+              label: node.data.unitId || `${node.data.manufacturer} ${node.data.model}`,
+              latencyMs: node.data.latencyMs,
+              latencyFrames: node.data.latencyFrames,
+              estimate: node.data.latencyEstimate,
+              format: node.data.format ?? "",
+            }),
+          )}
+          edges={edges.map((edge) => ({
+            id: edge.id,
+            source: edge.source,
+            target: edge.target,
+            format: edge.data?.signalFormat || edge.data?.signal || "",
+          }))}
+          onTiming={(id, patch) => {
+            setNodes((current) =>
+              current.map((node) =>
+                node.id === id
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        latencyMs: patch.latencyMs ?? node.data.latencyMs,
+                        latencyFrames: patch.latencyFrames ?? node.data.latencyFrames,
+                        latencyEstimate: patch.estimate ?? node.data.latencyEstimate,
+                        format: patch.format ?? node.data.format,
+                      },
+                    }
+                  : node,
+              ),
+            );
+          }}
+          onActive={setActiveEdges}
+          onClose={() => {
+            setSignalOpen(false);
+            setActiveEdges([]);
+          }}
+        />
+      ) : null}
       {networkOpen ? (
         <NetworkBoard
           show={name}
@@ -1402,7 +1464,11 @@ export function FlowCanvas({
             edgeTypes={edgeTypes}
             colorMode="dark"
             nodes={nodes}
-            edges={edges}
+            edges={edges.map((edge) =>
+              activeEdges.includes(edge.id)
+                ? { ...edge, animated: true, style: { ...edge.style, strokeWidth: 4 } }
+                : edge,
+            )}
             nodesDraggable={!readOnly}
             nodesConnectable={!readOnly}
             edgesReconnectable={!readOnly}
