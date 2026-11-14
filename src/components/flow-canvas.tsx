@@ -27,6 +27,8 @@ import type { Catalog, EquipmentRow, Pin } from "@/lib/catalog.functions";
 import { saveSystem, updateSystemGraph } from "@/lib/drawing.functions";
 import type { CableStyle, DrawingFile, DrawingGroup, DrawingTitle } from "@/lib/drawing";
 import { GearNodeCard, gearNodeSize } from "@/components/gear-node";
+import { DevicePalette } from "@/components/device-palette";
+import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
 
 type EquipmentNodeData = {
@@ -340,8 +342,20 @@ export function FlowCanvas({
     });
   }
 
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const place = useCallback(
-    (item: EquipmentRow, at?: { x: number; y: number }) => {
+    (item: Pick<EquipmentRow, "id" | "deviceType" | "deviceTypeId" | "manufacturer" | "model" | "kind" | "pins">, at?: { x: number; y: number }) => {
       const same = nodes.filter((node) => node.data.equipmentId === item.id);
       const stamp = `${item.deviceType.slice(0, 3).toUpperCase()}-${same.length + 1}`;
       const node: EquipmentNode = {
@@ -1105,6 +1119,9 @@ export function FlowCanvas({
                   New
                 </button>
               )}
+              <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={() => setPaletteOpen(true)}>
+                Devices
+              </button>
               <button
                 type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${gearBar ? "bg-ink text-paper" : "border border-line bg-panel"}`}
@@ -1155,6 +1172,16 @@ export function FlowCanvas({
           )
         : null}
       {gearBar ? <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} /> : null}
+      <DevicePalette
+        open={paletteOpen && !readOnly}
+        onClose={() => setPaletteOpen(false)}
+        onPlace={(id) => {
+          void adoptCatalogDevice({ data: id }).then((result) => {
+            if (result.equipment) place(result.equipment);
+            else if (result.error) setHint(result.error);
+          });
+        }}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-3 py-1.5">
           <p className="truncate text-sm text-muted">{hint}</p>
@@ -1316,11 +1343,21 @@ export function FlowCanvas({
             onDrop={(event) => {
               event.preventDefault();
               if (readOnly) return;
+              const flow = flowRef.current;
+              if (!flow) return;
+              const point = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+              const catalogId = event.dataTransfer.getData("text/catalog-id");
+              if (catalogId) {
+                void adoptCatalogDevice({ data: catalogId }).then((result) => {
+                  if (result.equipment) place(result.equipment, point);
+                  else if (result.error) setHint(result.error);
+                });
+                return;
+              }
               const id = Number(event.dataTransfer.getData("text/gear-id"));
               const item = catalog.equipment.find((row) => row.id === id);
-              const flow = flowRef.current;
-              if (!item || !flow) return;
-              place(item, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+              if (!item) return;
+              place(item, point);
             }}
             onPaneContextMenu={(event) => {
               event.preventDefault();

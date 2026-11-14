@@ -72,6 +72,11 @@ export function GearNodeCard({
         style={{ background: color, color: inkOn(color) }}
       >
         <span className="min-w-0 truncate">{deviceType || "Device"}</span>
+        {pins.some((pin) => /unverified|count unknown/i.test(pin.label)) ? (
+          <span className="rounded-full bg-paper px-2 py-0.5 text-[10px] font-semibold tracking-normal text-ink normal-case">
+            Unverified
+          </span>
+        ) : null}
         {selected ? (
           <span className="rounded-full bg-paper px-2 py-0.5 text-[10px] font-semibold tracking-normal text-ink normal-case">
             Selected

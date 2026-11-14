@@ -287,9 +287,17 @@ if (typeof window === "undefined") {
   void (async () => {
     try {
       await ensureDbReady();
-      await ensureDesignAdmin(fromSql(await getSql()), process.env);
+      const sql = await getSql();
+      await ensureDesignAdmin(fromSql(sql), process.env);
+      const { readFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const raw = await readFile(join(process.cwd(), "data", "catalog", "devices.json"), "utf8");
+      const { upsertCatalog } = await import("../../../scripts/catalog-import.mjs");
+      const imported = await upsertCatalog((text: string, params?: unknown[]) => sql.query(text, params ?? []), JSON.parse(raw));
+      console.info(`[catalog] ${imported.status} ${imported.count} devices`);
     } catch (error) {
-      console.error("[seed] admin ensure failed", error);
+      const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
+      if (!missing) console.error("[seed] startup ensure failed", error);
     }
   })();
 }
