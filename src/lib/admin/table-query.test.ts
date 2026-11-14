@@ -21,6 +21,17 @@ describe("table browser queries", () => {
     assert.equal(query.params[1], 200);
     assert.equal(query.params[2], 0);
     assert.throws(() => buildTableSelect({ table: "user;drop", columns: ["id"], limit: 10, offset: 0 }));
+    const searched = buildTableSelect({
+      table: "user",
+      columns,
+      search: "ada",
+      limit: 25,
+      offset: 0,
+    });
+    assert.match(searched.text, /"email"::text ilike/);
+    assert.match(searched.text, /"name"::text ilike/);
+    assert.doesNotMatch(searched.text, /"password"::text ilike/);
+    assert.equal(searched.params.filter((item) => item === "%ada%").length, 3);
   });
 
   it("masks secrets and refuses to write them from the grid", () => {

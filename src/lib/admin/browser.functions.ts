@@ -103,7 +103,8 @@ export const adminTablePage = createServerFn({ method: "POST" })
     const query = buildTableSelect({
       table: data.table,
       columns: meta.columns,
-      filter: data.filterValue ? { column: data.filterColumn, op: asOp(data.filterOp), value: data.filterValue } : null,
+      filter: data.filterValue && data.filterColumn ? { column: data.filterColumn, op: asOp(data.filterOp), value: data.filterValue } : null,
+      search: data.filterValue && !data.filterColumn ? data.filterValue : null,
       sort: data.sortColumn ? { column: data.sortColumn, dir: data.sortDir as SortDir } : null,
       limit: data.limit,
       offset: data.offset,
@@ -143,9 +144,11 @@ export const adminTableCsv = createServerFn({ method: "POST" })
     const query = buildTableSelect({
       table: data.table,
       columns: meta.columns,
-      filter: data.filterValue ? { column: data.filterColumn, op: asOp(data.filterOp), value: data.filterValue } : null,
-      limit: 200,
+      filter: data.filterValue && data.filterColumn ? { column: data.filterColumn, op: asOp(data.filterOp), value: data.filterValue } : null,
+      search: data.filterValue && !data.filterColumn ? data.filterValue : null,
+      limit: 5000,
       offset: 0,
+      maxLimit: 5000,
     });
     const raw = await opened.sql.query<Record<string, unknown>>(query.text, query.params);
     await writeAudit(opened.sql, opened.actor.id, "db.export", "table", data.table, `${raw.length} rows`);

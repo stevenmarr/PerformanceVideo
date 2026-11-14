@@ -49,7 +49,7 @@ export type AdminDrawingRow = {
 };
 
 export type AdminUserDetail = {
-  user: { id: string; name: string; email: string; createdAt: string };
+  user: { id: string; name: string; email: string; username: string; createdAt: string };
   studio: { companyName: string; email: string; phone: string; website: string; drawnBy: string } | null;
   drawings: AdminDrawingRow[];
   models: AdminLibraryRow[];
@@ -144,8 +144,8 @@ export const adminUser = createServerFn({ method: "GET" })
   .handler(async ({ context, data: userId }): Promise<AdminUserDetail | null> => {
     const opened = await openAdmin(context.userId);
     if (!opened || !userId) return null;
-    const people = await opened.sql<{ id: string; name: string; email: string; created_at: string }>`
-      select id, name, email, "createdAt"::text as created_at from "user" where id = ${userId}
+    const people = await opened.sql<{ id: string; name: string; email: string; username: string; created_at: string }>`
+      select id, name, email, coalesce(username, '') as username, "createdAt"::text as created_at from "user" where id = ${userId}
     `;
     const person = people[0];
     if (!person) return null;
@@ -187,7 +187,7 @@ export const adminUser = createServerFn({ method: "GET" })
     `;
     const studio = studios[0];
     return {
-      user: { id: person.id, name: person.name, email: person.email, createdAt: person.created_at },
+      user: { id: person.id, name: person.name, email: person.email, username: person.username, createdAt: person.created_at },
       studio: studio
         ? {
             companyName: studio.company_name,

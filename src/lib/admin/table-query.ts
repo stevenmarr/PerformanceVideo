@@ -34,14 +34,26 @@ export type TableQueryInput = {
   table: string;
   columns: string[];
   filter?: { column: string; op: FilterOp; value: string } | null;
+  search?: string | null;
   sort?: { column: string; dir: SortDir } | null;
   limit: number;
   offset: number;
+  maxLimit?: number;
 };
 
 function whereClause(input: TableQueryInput): { sql: string; params: unknown[] } {
   const filter = input.filter;
-  if (!filter || !filter.value.trim() || !input.columns.includes(filter.column)) return { sql: "", params: [] };
+  if (!filter || !filter.value.trim() || !input.columns.includes(filter.column)) {
+    const search = input.search?.trim();
+    if (!search) return { sql: "", params: [] };
+    const columns = input.columns.filter((name) => !isSensitiveColumn(name));
+    if (!columns.length) return { sql: "", params: [] };
+    const pattern = likePattern(search);
+    return {
+      sql: ` where (${columns.map((name, index) => `${quoteIdent(name)}::text ilike $${index + 1} escape '\\'`).join(" or ")})`,
+      params: columns.map(() => pattern),
+    };
+  }
   const column = `${quoteIdent(filter.column)}::text`;
   if (filter.op === "contains") {
     return { sql: ` where ${column} ilike $1 escape '\\'`, params: [likePattern(filter.value.trim())] };
@@ -61,7 +73,7 @@ export function buildTableSelect(input: TableQueryInput): { text: string; params
     const dir = input.sort.dir === "desc" ? "desc" : "asc";
     order = ` order by ${quoteIdent(input.sort.column)} ${dir}`;
   }
-  const limit = Math.min(200, Math.max(1, Math.floor(input.limit)));
+  const limit = Math.min(input.maxLimit ?? 200, Math.max(1, Math.floor(input.limit)));
   const offset = Math.max(0, Math.floor(input.offset));
   const params = [...where.params, limit, offset];
   const limitIndex = where.params.length + 1;

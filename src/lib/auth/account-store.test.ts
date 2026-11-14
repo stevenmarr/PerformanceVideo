@@ -92,6 +92,7 @@ describe("admin seed and password reset", () => {
     const updated = await db.query<{ password: string; must_change_password: boolean }>(
       `select a.password, u.must_change_password from "user" u join "account" a on a."userId" = u.id where u.id = 'user-1'`,
     );
+    assert.equal(await verifyStoredPassword(updated[0]?.password ?? "", "old-password"), false);
     assert.equal(await verifyStoredPassword(updated[0]?.password ?? "", "new-password-1"), true);
     assert.equal(updated[0]?.must_change_password, false);
 
