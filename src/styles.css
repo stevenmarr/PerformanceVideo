@@ -82,3 +82,150 @@
   background: transparent;
   color: var(--color-muted);
 }
+
+.shop-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow: auto;
+  background: #fff;
+  color: #111;
+}
+
+.shop-preview-chrome {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid #ddd;
+  background: #fff;
+  padding: 0.75rem 1rem;
+}
+
+.shop-preview-chrome button {
+  border: 1px solid #111;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.shop-preview-chrome button + button {
+  background: #fff;
+  color: #111;
+}
+
+.shop-preview-chrome p {
+  margin: 0;
+  color: #444;
+  font-size: 0.8rem;
+}
+
+.shop-print {
+  box-sizing: border-box;
+  width: 7.5in;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0.4in 0.35in 0.6in;
+  color: #111;
+  background: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.shop-print h1 {
+  margin: 0;
+  font-size: 16pt;
+  line-height: 1.2;
+}
+
+.shop-print h2 {
+  margin: 14pt 0 4pt;
+  font-size: 11pt;
+  break-after: avoid;
+}
+
+.shop-print .shop-meta {
+  margin: 4pt 0 0;
+  font-size: 9pt;
+}
+
+.shop-print .shop-warnings {
+  margin: 8pt 0 0;
+  padding-left: 1.1em;
+  font-size: 8.5pt;
+}
+
+.shop-print .shop-empty {
+  margin: 0;
+  font-size: 9pt;
+}
+
+.shop-print table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8pt;
+  line-height: 1.25;
+}
+
+.shop-print th,
+.shop-print td {
+  border-bottom: 1px solid #ccc;
+  padding: 2px 4px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.shop-print th {
+  font-weight: 700;
+}
+
+.shop-print thead {
+  display: table-header-group;
+}
+
+.shop-print tr {
+  break-inside: avoid;
+}
+
+.shop-print .shop-note {
+  font-weight: 700;
+}
+
+@page {
+  size: letter;
+  margin: 0.5in;
+}
+
+@media print {
+  body.shop-printing * {
+    visibility: hidden;
+  }
+
+  body.shop-printing .shop-print,
+  body.shop-printing .shop-print * {
+    visibility: visible;
+  }
+
+  body.shop-printing .shop-preview {
+    position: static;
+    overflow: visible;
+    background: #fff;
+  }
+
+  body.shop-printing .shop-preview-chrome {
+    display: none !important;
+  }
+
+  body.shop-printing .shop-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+}
