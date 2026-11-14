@@ -38,6 +38,8 @@ import { instanceDockSide } from "@/lib/layout/instance-dock";
 import { groupFrameBox, GROUP_LABEL_INSET } from "@/lib/layout/group-label";
 import { placeClearOf, type ScreenRect } from "@/lib/layout/place-clear";
 import { cableCaution, jackCaution, jackName } from "@/lib/sheets/jacks";
+import { collapseWarnings, warningLine, rowsWithNote } from "@/lib/sheets/warnings";
+import { ShopPrint } from "@/components/shop-print";
 import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
@@ -1719,6 +1721,9 @@ export function FlowCanvas({
             onTitle={(next) => setTitle(next)}
             rows={sheet === "patch" ? patch : pull}
             cableRows={sheet === "pull" ? pullCables : undefined}
+            show={name}
+            printPatch={patch}
+            printCables={pullCables}
             filename={sheet === "patch" ? patchSlug : `${fileSlug}-pull.csv`}
             focusLabel={sheet === "patch" ? patchFocus?.label : undefined}
             onClearFocus={() => setPatchFocus(null)}
@@ -2177,6 +2182,9 @@ function ListSheet({
   patchJson,
   patchCsv,
   cableRows,
+  show,
+  printPatch,
+  printCables,
 }: {
   kind: "patch" | "pull";
   title: DrawingTitle;
@@ -2195,11 +2203,24 @@ function ListSheet({
   patchJson?: string;
   patchCsv?: string;
   cableRows?: string[][];
+  show: string;
+  printPatch: string[][];
+  printCables: string[][];
 }) {
   const header = rows[0] ?? [];
   const source = rows.slice(1);
   const [sort, setSort] = useState<{ index: number; dir: "asc" | "desc" }>({ index: 0, dir: "asc" });
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [preview, setPreview] = useState(false);
   const body = [...source].sort((a, b) => compareCells(a[sort.index] ?? "", b[sort.index] ?? "") * (sort.dir === "asc" ? 1 : -1));
+  const noteAt = header.indexOf("Note");
+  const listed = flaggedOnly && kind === "patch" && noteAt >= 0 ? body.filter((row) => (row[noteAt] ?? "").trim()) : body;
+  const cableHeader = cableRows?.[0] ?? [];
+  const cableNote = cableHeader.indexOf("Note");
+  const cableListed = (cableRows ?? []).slice(1).filter((row) => !flaggedOnly || cableNote < 0 || (row[cableNote] ?? "").trim());
+  const collapsed = collapseWarnings(issues);
+  const printedPatch = flaggedOnly ? rowsWithNote(printPatch) : printPatch;
+  const printedCables = flaggedOnly ? rowsWithNote(printCables) : printCables;
 
   function toggleSort(index: number) {
     setSort((current) =>
@@ -2217,11 +2238,12 @@ function ListSheet({
               ? "Each cable names the jack printed on the box. A note means that jack is unverified or its count was never stated."
               : "Quantity is how many of that model are on the drawing. The cable pull under it uses the same jack names. A system counts as one, not the boxes inside it."}
           </p>
-          {issues.length ? (
+          {collapsed.length ? (
             <ul className="mt-2 max-w-xl space-y-1 text-sm text-danger">
-              {issues.slice(0, 8).map((issue) => (
-                <li key={issue}>{issue}</li>
+              {collapsed.slice(0, 12).map((issue) => (
+                <li key={issue.text}>{warningLine(issue)}</li>
               ))}
+              {collapsed.length > 12 ? <li>{collapsed.length - 12} more</li> : null}
             </ul>
           ) : null}
         </div>
@@ -2242,6 +2264,16 @@ function ListSheet({
               />
             </label>
           ) : null}
+          <button
+            type="button"
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${flaggedOnly ? "bg-ink text-paper" : "border border-line"}`}
+            onClick={() => setFlaggedOnly((current) => !current)}
+          >
+            {flaggedOnly ? "All cables" : "Flagged only"}
+          </button>
+          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={() => setPreview(true)}>
+            Print
+          </button>
           {focusLabel && onClearFocus ? (
             <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={onClearFocus}>
               Whole drawing
@@ -2315,8 +2347,10 @@ function ListSheet({
           </label>
         ))}
       </div>
-      {body.length === 0 ? (
-        <p className="text-sm text-muted">{kind === "patch" ? "No cables yet." : "Nothing placed yet."}</p>
+      {listed.length === 0 ? (
+        <p className="text-sm text-muted">
+          {flaggedOnly && kind === "patch" ? "No flagged cables." : kind === "patch" ? "No cables yet." : "Nothing placed yet."}
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line">
           <table className="w-full min-w-[40rem] text-left text-sm">
@@ -2335,7 +2369,7 @@ function ListSheet({
               </tr>
             </thead>
             <tbody>
-              {body.map((row, index) => (
+              {listed.map((row, index) => (
                 <tr key={index} className="border-t border-line">
                   {row.map((cell, cellIndex) =>
                       header[cellIndex] === "Cable ID" ? null : (
@@ -2360,8 +2394,8 @@ function ListSheet({
           <p className="mt-1 max-w-xl text-sm text-muted">
             One row per run. The jack names match the drawing, and a note marks an unverified or unknown-count port.
           </p>
-          {cableRows.length < 2 ? (
-            <p className="mt-3 text-sm text-muted">No cables yet.</p>
+          {cableListed.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">{flaggedOnly ? "No flagged cables." : "No cables yet."}</p>
           ) : (
             <div className="mt-3 overflow-x-auto rounded-xl border border-line">
               <table className="w-full min-w-[40rem] text-left text-sm">
@@ -2373,7 +2407,7 @@ function ListSheet({
                   </tr>
                 </thead>
                 <tbody>
-                  {cableRows.slice(1).map((row, index) => (
+                  {cableListed.map((row, index) => (
                     <tr key={index} className="border-t border-line">
                       {row.map((cell, cellIndex) => (
                         <td key={cellIndex} className={`px-3 py-2 align-top ${cableRows[0][cellIndex] === "Note" && cell ? "text-danger" : ""}`}>
@@ -2387,6 +2421,17 @@ function ListSheet({
             </div>
           )}
         </div>
+      ) : null}
+      {preview ? (
+        <ShopPrint
+          show={show}
+          title={title}
+          warnings={collapsed}
+          patch={printedPatch}
+          cables={printedCables}
+          flaggedOnly={flaggedOnly}
+          onClose={() => setPreview(false)}
+        />
       ) : null}
     </div>
   );
