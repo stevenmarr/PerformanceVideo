@@ -30,6 +30,7 @@ COPY --from=build /app/scripts/migrate.mjs ./scripts/migrate.mjs
 COPY --from=build /app/scripts/migration-plan.mjs ./scripts/migration-plan.mjs
 COPY --from=build /app/scripts/catalog-import.mjs ./scripts/catalog-import.mjs
 COPY --from=build /app/scripts/import-devices.mjs ./scripts/import-devices.mjs
+COPY --from=build /app/scripts/companion-identity-source.mjs ./scripts/companion-identity-source.mjs
 COPY --from=build /opt/pg-runtime ./node_modules
 COPY docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

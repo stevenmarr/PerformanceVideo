@@ -289,12 +289,27 @@ if (typeof window === "undefined") {
       await ensureDbReady();
       const sql = await getSql();
       await ensureDesignAdmin(fromSql(sql), process.env);
-      const { readFile } = await import("node:fs/promises");
+      const { readdir, readFile } = await import("node:fs/promises");
       const { join } = await import("node:path");
-      const raw = await readFile(join(process.cwd(), "data", "catalog", "devices.json"), "utf8");
       const { upsertCatalog } = await import("../../../scripts/catalog-import.mjs");
-      const imported = await upsertCatalog((text: string, params?: unknown[]) => sql.query(text, params ?? []), JSON.parse(raw));
-      console.info(`[catalog] ${imported.status} ${imported.count} devices`);
+      const dir = join(process.cwd(), "data", "catalog");
+      const names = (await readdir(dir)).filter((name) => name.endsWith(".json") && name !== "schema.json").sort();
+      for (const name of names) {
+        const catalog = JSON.parse(await readFile(join(dir, name), "utf8"));
+        const imported = await upsertCatalog(
+          (text: string, params?: unknown[]) => sql.query(text, params ?? []),
+          catalog,
+          name.replace(/\.json$/, ""),
+        );
+        console.info(`[catalog] ${name} ${imported.status} ${imported.count} devices`);
+      }
+      const { companionIdentityCatalog } = await import("../../../scripts/companion-identity-source.mjs");
+      const companion = await upsertCatalog(
+        (text: string, params?: unknown[]) => sql.query(text, params ?? []),
+        companionIdentityCatalog,
+        "companion-identity",
+      );
+      console.info(`[catalog] companion-identity ${companion.status} ${companion.count} devices`);
     } catch (error) {
       const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
       if (!missing) console.error("[seed] startup ensure failed", error);

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Load data/catalog/devices.json into device_definitions.
- * Safe to run again: the same generated_at is a no-op, otherwise rows are upserted.
- * No DATABASE_URL: skip (PGLite imports on server start when the file is present).
+ * Load every data/catalog/*.json catalog (except schema.json) into device_definitions.
+ * Safe to run again: each file is skipped when its generated_at is already imported.
+ * No DATABASE_URL: skip (the app imports into PGLite on startup when the files are present).
  */
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { upsertCatalog } from "./catalog-import.mjs";
+import { companionIdentityCatalog } from "./companion-identity-source.mjs";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) {
@@ -16,16 +17,18 @@ if (!databaseUrl) {
   process.exit(0);
 }
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const file = join(root, "data", "catalog", "devices.json");
-const catalog = JSON.parse(await readFile(file, "utf8"));
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "data", "catalog");
+const names = (await readdir(root)).filter((name) => name.endsWith(".json") && name !== "schema.json").sort();
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
 try {
-  const result = await upsertCatalog(
-    async (text, params = []) => (await pool.query(text, params)).rows,
-    catalog,
-  );
-  console.log(`[catalog] ${result.status} ${result.count} devices`);
+  const query = async (text, params = []) => (await pool.query(text, params)).rows;
+  for (const name of names) {
+    const catalog = JSON.parse(await readFile(join(root, name), "utf8"));
+    const result = await upsertCatalog(query, catalog, name.replace(/\.json$/, ""));
+    console.log(`[catalog] ${name} ${result.status} ${result.count} devices`);
+  }
+  const companion = await upsertCatalog(query, companionIdentityCatalog, "companion-identity");
+  console.log(`[catalog] companion-identity ${companion.status} ${companion.count} devices`);
 } finally {
   await pool.end();
 }
