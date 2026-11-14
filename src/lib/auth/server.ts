@@ -292,12 +292,14 @@ if (typeof window === "undefined") {
       const { readdir, readFile } = await import("node:fs/promises");
       const { join } = await import("node:path");
       const { applyDatasheetPorts, upsertCatalog } = await import("../../../scripts/catalog-import.mjs");
-      const { datasheetPortOverlay } = await import("../../../scripts/datasheet-ports.mjs");
+      const { datasheetExtraDevices, datasheetPortOverlay } = await import("../../../scripts/datasheet-ports.mjs");
       const dir = join(process.cwd(), "data", "catalog");
       const names = (await readdir(dir)).filter((name) => name.endsWith(".json") && name !== "schema.json").sort();
       for (const name of names) {
         const catalog = JSON.parse(await readFile(join(dir, name), "utf8"));
-        if (name === "devices.json") catalog.devices = applyDatasheetPorts(catalog.devices, datasheetPortOverlay);
+        if (name === "devices.json") {
+          catalog.devices = applyDatasheetPorts(catalog.devices, datasheetPortOverlay, datasheetExtraDevices);
+        }
         const imported = await upsertCatalog(
           (text: string, params?: unknown[]) => sql.query(text, params ?? []),
           catalog,

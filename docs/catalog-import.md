@@ -17,4 +17,4 @@ Coverage and the Companion manufacturers that are not in this file yet:
 
 Priority A from `docs/catalog-companion-gap.md` is loaded as identity-only nodes (`scripts/companion-identity-source.mjs`). Those records have empty `ports` and `port_data_confidence: none`. The importer turns each into one unverified placeholder. No port count is stored.
 
-Still waiting on official datasheets, with no invented counts: Barco Event Master, Brompton Tessera, ROE panels, Panasonic PTZ and Kairos, Sony switchers and PTZ, and Grass Valley K-Frame.
+Datasheet counts for the Event Master, Brompton, ROE processor, Panasonic, Sony, and Grass Valley records that have a cited sheet live in `scripts/datasheet-ports.mjs` and are applied only while importing `devices.json`. The log is `docs/catalog-datasheets.md`. The original E2 (NGS-4U) is an extra record, `barco.event-master-e2-original`, so the Gen 2 E2 id stays on the Gen 2 sheet. ROE panels stay empty: the manuals name cable types and do not state a connector count.

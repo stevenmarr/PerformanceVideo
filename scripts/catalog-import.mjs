@@ -72,26 +72,31 @@ export function pinsFromPorts(ports) {
  * Replace identity-only port lists with a datasheet overlay.
  * Every overlay entry must cite a source URL. Counts must be positive
  * integers or null. Devices that are not in the overlay are unchanged.
+ * Extra devices are appended when that id is not already in the catalog.
  */
-export function applyDatasheetPorts(devices, overlay) {
+function assertDatasheetPatch(id, patch) {
+  if (!Array.isArray(patch.sources) || patch.sources.length === 0 || patch.sources.some((item) => !item?.url)) {
+    throw new Error(`${id} datasheet patch has no source URL`);
+  }
+  if (!Array.isArray(patch.ports) || patch.ports.length === 0) {
+    throw new Error(`${id} datasheet patch has no ports`);
+  }
+  for (const item of patch.ports) {
+    if (item.count != null && (!Number.isInteger(item.count) || item.count < 1)) {
+      throw new Error(`${id} ${item.id} count is not a positive integer or null`);
+    }
+  }
+}
+
+export function applyDatasheetPorts(devices, overlay, extras = []) {
   const byId = new Map(overlay.map((item) => [item.id, item]));
   const seen = new Set();
-  return devices.map((device) => {
+  const next = devices.map((device) => {
     const patch = byId.get(device.id);
     if (!patch) return device;
     if (seen.has(device.id)) throw new Error(`Duplicate datasheet patch ${device.id}`);
     seen.add(device.id);
-    if (!Array.isArray(patch.sources) || patch.sources.length === 0 || patch.sources.some((item) => !item?.url)) {
-      throw new Error(`${device.id} datasheet patch has no source URL`);
-    }
-    if (!Array.isArray(patch.ports) || patch.ports.length === 0) {
-      throw new Error(`${device.id} datasheet patch has no ports`);
-    }
-    for (const item of patch.ports) {
-      if (item.count != null && (!Number.isInteger(item.count) || item.count < 1)) {
-        throw new Error(`${device.id} ${item.id} count is not a positive integer or null`);
-      }
-    }
+    assertDatasheetPatch(device.id, patch);
     return {
       ...device,
       port_data_confidence: patch.port_data_confidence,
@@ -100,6 +105,14 @@ export function applyDatasheetPorts(devices, overlay) {
       sources: [...(device.sources ?? []), ...patch.sources],
     };
   });
+  const ids = new Set(next.map((device) => device.id));
+  for (const extra of extras) {
+    assertDatasheetPatch(extra.id, extra);
+    if (ids.has(extra.id)) throw new Error(`Datasheet device ${extra.id} is already in the catalog`);
+    ids.add(extra.id);
+    next.push(extra);
+  }
+  return next;
 }
 
 export function catalogRows(catalog) {
