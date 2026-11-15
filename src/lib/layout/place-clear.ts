@@ -13,11 +13,14 @@ export function placeClearOf(
   viewportW: number,
   viewportH: number,
   obstacle: ScreenRect | null,
+  /** Lowest allowed top edge, e.g. just below a sticky header. Defaults to the margin. */
+  minTop = 8,
 ): { left: number; top: number } {
   const margin = 8;
+  const floor = Math.max(margin, minTop);
   const clamp = (left: number, top: number) => ({
     left: Math.max(margin, Math.min(left, Math.max(margin, viewportW - width - margin))),
-    top: Math.max(margin, Math.min(top, Math.max(margin, viewportH - height - margin))),
+    top: Math.max(floor, Math.min(top, Math.max(floor, viewportH - height - margin))),
   });
   const candidates = [
     { left: anchorX, top: anchorY },

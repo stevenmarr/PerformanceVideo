@@ -1287,7 +1287,9 @@ export function FlowCanvas({
   })();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // `relative` anchors the Network, Signal and Devices overlays (absolute
+    // inset-0) to the drawing pane, below the app header, not to the page.
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {commandSlot
         ? createPortal(
             <>
@@ -2617,7 +2619,13 @@ function groupFrame(members: EquipmentNode[]) {
 
 function menuPoint(x: number, y: number, width = 280, height = 280, avoid: ScreenRect | null = null) {
   if (typeof window === "undefined") return { left: x, top: y };
-  return placeClearOf(x, y, width, height, window.innerWidth, window.innerHeight, avoid);
+  return placeClearOf(x, y, width, height, window.innerWidth, window.innerHeight, avoid, headerBottom() + 8);
+}
+
+/** Bottom edge of the sticky app header, published by AppShell as --app-header-h. */
+function headerBottom() {
+  const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-h"));
+  return Number.isFinite(value) ? value : 0;
 }
 
 function FixedMenu({ x, y, title, avoid, children }: { x: number; y: number; title: string; avoid: ScreenRect | null; children: ReactNode }) {

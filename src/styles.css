@@ -229,3 +229,22 @@
     padding: 0;
   }
 }
+
+/* Header logo. The app chrome is dark, so the white artwork shows by default.
+   If a light theme is set on <html data-theme="light">, swap to the black one. */
+.brand-logo-on-light {
+  display: none;
+}
+
+html[data-theme="light"] .brand-logo-on-dark {
+  display: none;
+}
+
+html[data-theme="light"] .brand-logo-on-light {
+  display: block;
+}
+
+.brand-logo:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
