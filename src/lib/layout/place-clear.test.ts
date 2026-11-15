@@ -16,4 +16,13 @@ describe("floating menu placement", () => {
     assert.ok(edge.left + 200 <= 792);
     assert.ok(edge.top + 120 <= 592);
   });
+
+  it("keeps a menu below a sticky header when given a minimum top", () => {
+    const high = placeClearOf(40, 10, 200, 120, 800, 600, null, 72);
+    assert.equal(high.top, 72);
+    const low = placeClearOf(40, 300, 200, 120, 800, 600, null, 72);
+    assert.equal(low.top, 300);
+    const bottom = placeClearOf(40, 590, 200, 120, 800, 600, null, 72);
+    assert.ok(bottom.top >= 72 && bottom.top + 120 <= 592);
+  });
 });

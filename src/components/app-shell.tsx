@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { accountStatus } from "@/lib/auth/account.functions";
@@ -19,6 +19,23 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [admin, setAdmin] = useState(false);
   const nav = admin ? [...links, { to: "/admin" as const, label: "Admin" }] : links;
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publish the header's real height (it grows when the toolbar wraps) so
+  // fixed popovers can keep clear of it. Panels sit below it through layout.
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty("--app-header-h", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--app-header-h");
+    };
+  }, []);
 
   useEffect(() => {
     if (!user?.id || pathname === "/account") return;
@@ -71,16 +88,26 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
 
   return (
     <div className={bleed ? "flex h-dvh flex-col overflow-hidden bg-paper text-ink" : "flex min-h-screen flex-col bg-paper text-ink"}>
-      <header className="sticky top-0 z-40 shrink-0 border-b border-line bg-panel">
-        <div className="flex items-center gap-2 px-3 py-2">
-          <Link to="/" className="flex shrink-0 items-center">
+      <header ref={headerRef} className="sticky top-0 z-40 shrink-0 border-b border-line bg-panel">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+          <Link to="/" aria-label="Performance Video LLC home" className="brand-logo flex shrink-0 items-center rounded-lg">
             <img
               src="/brand/wide-white.png"
               alt="Performance Video LLC"
-              className="h-8 w-auto object-contain"
+              width={1711}
+              height={776}
+              className="brand-logo-on-dark h-12 w-auto -my-1 object-contain"
+            />
+            <img
+              src="/brand/wide-black.png"
+              alt=""
+              aria-hidden="true"
+              width={1711}
+              height={776}
+              className="brand-logo-on-light h-12 w-auto -my-1 object-contain"
             />
           </Link>
-          <nav className="flex shrink-0 items-center gap-1">
+          <nav className="flex shrink-0 flex-wrap items-center gap-1">
             {nav.map((link) => (
               <Link
                 key={link.to}
@@ -92,8 +119,7 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
               </Link>
             ))}
           </nav>
-          <div id="shell-commands" className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto" />
-          <div className="flex h-10 shrink-0 items-center">
+          <div className="ml-auto flex h-10 shrink-0 items-center 2xl:order-last 2xl:ml-0">
             {isPending ? (
               <div className="h-8 w-8 animate-pulse rounded-full bg-line" />
             ) : user ? (
@@ -109,12 +135,18 @@ export function AppShell({ children, bleed = false }: { children: ReactNode; ble
               </Link>
             )}
           </div>
+          {/* Page toolbar. Below 2xl it takes its own row and wraps instead of
+              scrolling under the nav; at 2xl it sits inline before the user. */}
+          <div
+            id="shell-commands"
+            className="flex w-full min-w-0 flex-wrap items-center gap-2 empty:hidden 2xl:w-auto 2xl:flex-1 2xl:justify-end"
+          />
         </div>
       </header>
       <main
         className={
           bleed
-            ? "flex min-h-0 flex-1 flex-col"
+            ? "relative flex min-h-0 flex-1 flex-col"
             : "mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6"
         }
       >
