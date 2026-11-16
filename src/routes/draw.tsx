@@ -32,7 +32,7 @@ type CanvasProps = {
   onSave: (payload: { id: number | null; name: string; graph: DrawingFile }) => Promise<{ id: number | null; error: string | null }>;
   onCreate: () => void;
   onDelete: (id: number) => Promise<void>;
-  onLibraryChange: () => Promise<void>;
+  onLibraryChange: () => Promise<Catalog>;
   readOnly?: boolean;
 };
 
@@ -50,6 +50,7 @@ function DrawPage() {
   async function refreshCatalog() {
     const next = await getCatalog();
     setCatalog(next);
+    return next;
   }
 
   useEffect(() => {

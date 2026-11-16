@@ -22,6 +22,7 @@ import {
   type EquipmentRow,
 } from "@/lib/catalog.functions";
 import { nextConnection } from "@/lib/library/next-connection";
+import { SYSTEMS_CUSTOM, libraryGroupName } from "@/lib/system-sync";
 
 export const Route = createFileRoute("/library")({ component: LibraryPage });
 
@@ -165,10 +166,16 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
 
   const grouped = new Map<string, EquipmentRow[]>();
   for (const item of catalog.equipment) {
-    const list = grouped.get(item.deviceType) ?? [];
+    const group = libraryGroupName(item);
+    const list = grouped.get(group) ?? [];
     list.push(item);
-    grouped.set(item.deviceType, list);
+    grouped.set(group, list);
   }
+  const groups = [...grouped.entries()].sort(([a], [b]) => {
+    if (a === SYSTEMS_CUSTOM) return -1;
+    if (b === SYSTEMS_CUSTOM) return 1;
+    return a.localeCompare(b);
+  });
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -368,8 +375,9 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
         {catalog.equipment.length === 0 ? (
           <p className="text-sm text-muted">No models yet. Save one, then place it on the drawing.</p>
         ) : null}
-        {[...grouped.entries()].map(([typeName, items]) => {
+        {groups.map(([typeName, items]) => {
           const collapsed = collapsedTypes.includes(typeName);
+          const custom = typeName === SYSTEMS_CUSTOM;
           return (
           <section key={typeName}>
             <button
@@ -378,7 +386,7 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
               aria-expanded={!collapsed}
               onClick={() => toggleType(typeName)}
             >
-              <h2 className="text-sm font-semibold tracking-[0.16em] text-muted uppercase">{typeName}</h2>
+              <h2 className={`text-sm font-semibold tracking-[0.16em] text-muted ${custom ? "normal-case" : "uppercase"}`}>{typeName}</h2>
               <span className="text-xs text-muted">{collapsed ? "Show" : "Hide"}</span>
             </button>
             {collapsed ? null : (

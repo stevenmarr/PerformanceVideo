@@ -38,6 +38,13 @@ import { instanceDockSide } from "@/lib/layout/instance-dock";
 import { groupFrameBox, GROUP_LABEL_INSET } from "@/lib/layout/group-label";
 import { placeClearOf, type ScreenRect } from "@/lib/layout/place-clear";
 import { offsetFrom, resolvePlacePosition, type LastPlaced } from "@/lib/layout/placement";
+import {
+  SYSTEMS_CUSTOM,
+  equipmentOfType,
+  equipmentTypeNames,
+  syncSystemInstances,
+  systemUpdateHint,
+} from "@/lib/system-sync";
 import { cableCaution, jackCaution, jackName } from "@/lib/sheets/jacks";
 import { collapseWarnings, warningLine, rowsWithNote } from "@/lib/sheets/warnings";
 import { ShopPrint } from "@/components/shop-print";
@@ -406,7 +413,7 @@ export function FlowCanvas({
   onSave: (payload: { id: number | null; name: string; graph: DrawingFile }) => Promise<{ id: number | null; error: string | null }>;
   onCreate: () => void;
   onDelete: (id: number) => Promise<void>;
-  onLibraryChange: () => Promise<void>;
+  onLibraryChange: () => Promise<Catalog | void>;
   readOnly?: boolean;
 }) {
   const seeded = hydrate(drawing.graph, catalog);
@@ -1041,7 +1048,7 @@ export function FlowCanvas({
     }
     await onLibraryChange();
     setSystemFor(null);
-    setHint(`${systemName.trim() || group.name} is in the library under System. It counts as one unit.`);
+    setHint(`${systemName.trim() || group.name} is in the library under ${SYSTEMS_CUSTOM}. It counts as one unit.`);
   }
 
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -1345,6 +1352,23 @@ export function FlowCanvas({
     setMenu(null);
   }
 
+  function openBoxEditor(nodeId: string) {
+    // The popover unmounts on this same click; swallow the click that then
+    // lands on the pane so React Flow does not immediately deselect the box.
+    suppressClickRef.current = true;
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 400);
+    setNodes((current) => current.map((item) => ({ ...item, selected: item.id === nodeId })));
+    setSheet("draw");
+    setPatchPop(null);
+    setMenu(null);
+    setHint("Edit the unit ID, IP, or notes for this box.");
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('form[aria-label="This instance"] input')?.focus();
+    });
+  }
+
   function openPatchPage(label: string, nodeIds: string[]) {
     setPatchFocus({ label, nodeIds });
     setSheet("patch");
@@ -1409,17 +1433,39 @@ export function FlowCanvas({
   function backToShow() {
     const snap = showSnap.current;
     if (!snap) return;
+    const editedId = insideRef.current?.equipmentId;
     void (async () => {
       if (!readOnly) await flushSave({ quiet: true });
       primedSaveRef.current = false;
-      setNodes(snap.nodes);
-      setEdges(snap.edges);
+      let nextNodes = snap.nodes;
+      let nextEdges = snap.edges;
+      let hint = "Back on the show.";
+      if (editedId) {
+        const library = (await onLibraryChange()) ?? catalog;
+        const row = library.equipment.find((item) => item.id === editedId);
+        if (row) {
+          const synced = syncSystemInstances(nextNodes, nextEdges, {
+            id: row.id,
+            model: row.model,
+            manufacturer: row.manufacturer,
+            deviceType: row.deviceType,
+            kind: row.kind,
+            color: library.deviceTypes.find((type) => type.id === row.deviceTypeId)?.color ?? "#3f3a34",
+            pins: row.pins,
+          });
+          nextNodes = synced.nodes;
+          nextEdges = synced.edges;
+          hint = systemUpdateHint(row.model, synced.updatedInstances, synced.removedCables);
+        }
+      }
+      setNodes(nextNodes);
+      setEdges(nextEdges);
       setShowGroups(snap.groups);
       setTitle(snap.title);
       setCableStyle(snap.cableStyle);
       setInside(null);
       showSnap.current = null;
-      setHint("Back on the show.");
+      setHint(hint);
       requestAnimationFrame(() => flowRef.current?.fitView());
     })();
   }
@@ -1676,6 +1722,11 @@ export function FlowCanvas({
       <DevicePalette
         open={paletteOpen && !readOnly}
         onClose={() => setPaletteOpen(false)}
+        systems={catalog.equipment.filter((item) => item.kind === "system")}
+        onPlaceSystem={(id) => {
+          const item = catalog.equipment.find((row) => row.id === id);
+          if (item) place(item);
+        }}
         onPlace={(id) => {
           void adoptCatalogDevice({ data: id }).then((result) => {
             if (result.equipment) place(result.equipment);
@@ -1991,12 +2042,7 @@ export function FlowCanvas({
             onOpen={() => openPatchPage(patchPop.label, patchPop.nodeIds)}
             onEdit={
               patchPop.nodeIds.length === 1
-                ? () => {
-                    const id = patchPop.nodeIds[0];
-                    setNodes((current) => current.map((item) => ({ ...item, selected: item.id === id })));
-                    setSheet("draw");
-                    setPatchPop(null);
-                  }
+                ? () => openBoxEditor(patchPop.nodeIds[0])
                 : undefined
             }
             onRemove={patchPop.canRemove ? () => removeIds(patchPop.nodeIds, []) : undefined}
@@ -2041,13 +2087,9 @@ export function FlowCanvas({
                 <button
                   type="button"
                   className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-paper"
-                  onClick={() => {
-                    setNodes((current) => current.map((item) => ({ ...item, selected: item.id === menu.nodeId })));
-                    setSheet("draw");
-                    setMenu(null);
-                  }}
+                  onClick={() => openBoxEditor(menu.nodeId)}
                 >
-                  Edit unit ID, IP, notes
+                  Edit box
                 </button>
                 <button
                   type="button"
@@ -2324,7 +2366,19 @@ function PatchPop({
           Download CSV
         </button>
         {onEdit ? (
-          <button type="button" className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold" onClick={onEdit}>
+          <button
+            type="button"
+            className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onEdit();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
             Edit box
           </button>
         ) : null}
@@ -2957,12 +3011,9 @@ function GearColumns({
   onPick: (item: EquipmentRow) => void;
   compact?: boolean;
 }) {
-  const types = useMemo(
-    () => [...new Set(equipment.map((item) => item.deviceType))].sort((a, b) => a.localeCompare(b)),
-    [equipment],
-  );
+  const types = useMemo(() => equipmentTypeNames(equipment), [equipment]);
   const [type, setType] = useState(types[0] ?? "");
-  const ofType = equipment.filter((item) => item.deviceType === (types.includes(type) ? type : (types[0] ?? "")));
+  const ofType = equipmentOfType(equipment, types.includes(type) ? type : (types[0] ?? ""));
   const makers = [...new Set([...ofType.map((item) => item.manufacturer), "Unbranded"])].sort((a, b) =>
     a === "Unbranded" ? -1 : b === "Unbranded" ? 1 : a.localeCompare(b),
   );

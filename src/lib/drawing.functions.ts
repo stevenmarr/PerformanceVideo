@@ -6,6 +6,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { asDrawingFile, type DrawingFile } from "@/lib/drawing";
+import { exposedPinsFromPorts, type SystemPin } from "@/lib/system-sync";
 
 export type DrawingSummary = {
   id: number;
@@ -18,6 +19,22 @@ export type DrawingRecord = DrawingSummary & { graph: DrawingFile };
 
 function clean(value: unknown, max: number): string {
   return String(value ?? "").trim().slice(0, max);
+}
+
+function parseSystemPins(raw: string): SystemPin[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const pin = item as { id?: unknown; label?: unknown; direction?: unknown; signal?: unknown };
+      if (typeof pin.id !== "string" || typeof pin.label !== "string") return [];
+      if (pin.direction !== "input" && pin.direction !== "output") return [];
+      return [{ id: pin.id, label: pin.label, direction: pin.direction, signal: String(pin.signal ?? "") }];
+    });
+  } catch {
+    return [];
+  }
 }
 
 export const listDrawings = createServerFn({ method: "GET" })
@@ -242,9 +259,20 @@ export const updateSystemGraph = createServerFn({ method: "POST" })
       })),
     };
     const sql = await getSql();
+    const keptNodes = new Set(graph.nodes.map((node) => node.id));
+    graph.ports = graph.ports.filter((port) => keptNodes.has(port.nodeId));
+    const inner = await sql<{ id: number; pins_json: string }>`
+      select id, pins_json from equipment where user_id = ${context.userId}
+    `;
+    const pinsByEquipment = new Map<number, SystemPin[]>(
+      inner.map((row) => [row.id, parseSystemPins(row.pins_json)]),
+    );
+    const pins = exposedPinsFromPorts(graph.ports, graph.nodes, pinsByEquipment);
+    const pinIds = new Set(pins.map((pin) => pin.id));
+    graph.ports = graph.ports.filter((port) => pinIds.has(port.id));
     const updated = await sql<{ id: number }>`
       update equipment
-      set graph_json = ${JSON.stringify(graph)}
+      set graph_json = ${JSON.stringify(graph)}, pins_json = ${JSON.stringify(pins)}
       where id = ${equipmentId} and user_id = ${context.userId} and kind = ${"system"}
       returning id
     `;
