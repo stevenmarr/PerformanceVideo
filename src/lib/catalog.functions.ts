@@ -69,6 +69,10 @@ export type Catalog = {
 
 const KINDS = ["device", "converter", "splitter", "distribution", "adapter", "system"] as const;
 
+function boxKind(value: unknown, fallback: (typeof KINDS)[number] = "device"): (typeof KINDS)[number] {
+  return KINDS.includes(value as (typeof KINDS)[number]) ? (value as (typeof KINDS)[number]) : fallback;
+}
+
 const EMPTY_STUDIO: StudioRow = {
   companyName: "",
   address: "",
@@ -481,13 +485,12 @@ export const addEquipment = createServerFn({ method: "POST" })
   .validator((input: EquipmentInput) => input)
   .handler(async ({ context, data }) => {
     const model = clean(data.model, 80);
-    const kind = KINDS.includes(data.kind as (typeof KINDS)[number]) ? data.kind : "";
+    const kind = boxKind(data.kind);
     const notes = clean(data.notes, 500);
     const website = clean(data.website, 200);
     const deviceTypeId = Number(data.deviceTypeId);
     const manufacturerId = Number(data.manufacturerId);
     if (!model) return { error: "Model name is required." };
-    if (!kind) return { error: "Choose what kind of box this is." };
     if (!deviceTypeId || !manufacturerId) return { error: "Device type and manufacturer are required." };
 
     const pins: Pin[] = [];
@@ -666,13 +669,11 @@ export const updateEquipment = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const id = Number(data.id);
     const model = clean(data.model, 80);
-    const kind = KINDS.includes(data.kind as (typeof KINDS)[number]) ? data.kind : "";
     const notes = clean(data.notes, 500);
     const website = clean(data.website, 200);
     const deviceTypeId = Number(data.deviceTypeId);
     const manufacturerId = Number(data.manufacturerId);
     if (!model) return { error: "Model name is required." };
-    if (!kind) return { error: "Choose what kind of box this is." };
     if (!deviceTypeId || !manufacturerId) return { error: "Device type and manufacturer are required." };
 
     const pins: Pin[] = [];
@@ -712,6 +713,10 @@ export const updateEquipment = createServerFn({ method: "POST" })
         and id <> ${id}
     `;
     if (dup.length) return { error: "That model is already saved." };
+    const existing = await sql<{ kind: string }>`
+      select kind from equipment where id = ${id} and user_id = ${context.userId}
+    `;
+    const kind = boxKind(data.kind, boxKind(existing[0]?.kind));
     const updated = await sql`
       update equipment set
         device_type_id = ${deviceTypeId},
