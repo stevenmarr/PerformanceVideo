@@ -37,6 +37,7 @@ import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } fr
 import { instanceDockSide } from "@/lib/layout/instance-dock";
 import { groupFrameBox, GROUP_LABEL_INSET } from "@/lib/layout/group-label";
 import { placeClearOf, type ScreenRect } from "@/lib/layout/place-clear";
+import { offsetFrom, resolvePlacePosition, type LastPlaced } from "@/lib/layout/placement";
 import { cableCaution, jackCaution, jackName } from "@/lib/sheets/jacks";
 import { collapseWarnings, warningLine, rowsWithNote } from "@/lib/sheets/warnings";
 import { ShopPrint } from "@/components/shop-print";
@@ -78,7 +79,7 @@ type CableEdge = Edge<CableData>;
 type ShowGroup = DrawingGroup;
 
 type CanvasMenu =
-  | { kind: "pane"; x: number; y: number; flowX: number; flowY: number }
+  | { kind: "pane"; x: number; y: number; flowX: number; flowY: number; origin: string }
   | { kind: "node"; x: number; y: number; nodeId: string }
   | { kind: "edge"; x: number; y: number; edgeId: string };
 
@@ -517,25 +518,26 @@ export function FlowCanvas({
   const [networkOpen, setNetworkOpen] = useState(false);
   const [signalOpen, setSignalOpen] = useState(false);
   const [activeEdges, setActiveEdges] = useState<string[]>([]);
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteOpen(true);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
+  const lastPlacedRef = useRef<LastPlaced | null>(null);
   const place = useCallback(
-    (item: Pick<EquipmentRow, "id" | "deviceType" | "deviceTypeId" | "manufacturer" | "model" | "kind" | "pins">, at?: { x: number; y: number }) => {
+    (
+      item: Pick<EquipmentRow, "id" | "deviceType" | "deviceTypeId" | "manufacturer" | "model" | "kind" | "pins">,
+      at?: { x: number; y: number },
+      origin?: string,
+    ) => {
       const same = nodes.filter((node) => node.data.equipmentId === item.id);
       const stamp = `${item.deviceType.slice(0, 3).toUpperCase()}-${same.length + 1}`;
+      const sized = gearNodeSize(item.pins, { ip: "", notes: "", unit: stamp });
+      const position = resolvePlacePosition({
+        explicit: at,
+        last: lastPlacedRef.current,
+        count: nodes.length,
+        origin,
+      });
       const node: EquipmentNode = {
         id: `box-${item.id}-${Date.now()}`,
         type: "equipment",
-        position: at ?? { x: 48 + nodes.length * 300, y: 48 },
+        position,
         data: {
           equipmentId: item.id,
           unitId: stamp,
@@ -551,11 +553,70 @@ export function FlowCanvas({
           interfaces: [],
         },
       };
+      lastPlacedRef.current = { ...position, width: sized.width, height: sized.height, origin: origin ?? lastPlacedRef.current?.origin ?? null };
       setNodes((current) => [...current, node]);
       setHint(`${item.manufacturer} ${item.model} placed as ${stamp}.`);
     },
     [catalog.deviceTypes, nodes, setNodes, signalColors],
   );
+
+  function isTypingTarget(event: KeyboardEvent) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    return Boolean(
+      target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable),
+    );
+  }
+
+  const duplicateSelection = useCallback(() => {
+    const selected = nodes.filter((node) => node.selected);
+    if (!selected.length) {
+      setHint("Select a box first.");
+      return;
+    }
+    const created: EquipmentNode[] = [];
+    for (const node of selected) {
+      const same = [...nodes, ...created].filter((item) => item.data.equipmentId === node.data.equipmentId);
+      const stamp = `${node.data.deviceType.slice(0, 3).toUpperCase()}-${same.length + 1}`;
+      const copy: EquipmentNode = {
+        ...node,
+        id: `box-${node.data.equipmentId}-${Date.now()}-${created.length}`,
+        position: offsetFrom(node.position, nodeBox(node), "duplicate"),
+        selected: true,
+        data: {
+          ...node.data,
+          unitId: stamp,
+          ip: "",
+          interfaces: [],
+        },
+      };
+      created.push(copy);
+    }
+    setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), ...created]);
+    setHint(created.length === 1 ? `Duplicated as ${created[0].data.unitId}.` : `Duplicated ${created.length} boxes.`);
+  }, [nodes, setNodes]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (isTypingTarget(event)) return;
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && key === "d") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!readOnly) duplicateSelection();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [duplicateSelection, readOnly]);
 
   const [showGroups, setShowGroups] = useState<ShowGroup[]>(seeded.groups);
   const [draft, setDraft] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -576,12 +637,26 @@ export function FlowCanvas({
   } | null>(null);
   const flowRef = useRef<ReactFlowInstance<EquipmentNode, CableEdge> | null>(null);
   const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const groupsRef = useRef(showGroups);
+  const titleRef = useRef(title);
+  const nameRef = useRef(name);
+  const cableStyleRef = useRef(cableStyle);
+  const insideRef = useRef(inside);
+  const drawingIdRef = useRef(drawingId);
   const marqueeRef = useRef<MarqueeGesture | null>(null);
   const detachMarquee = useRef<(() => void) | null>(null);
   const suppressClickRef = useRef(false);
   const spaceRef = useRef(false);
   const nodeGestureRef = useRef<{ id: string; snapshot: Set<string> } | null>(null);
   nodesRef.current = nodes;
+  edgesRef.current = edges;
+  groupsRef.current = showGroups;
+  titleRef.current = title;
+  nameRef.current = name;
+  cableStyleRef.current = cableStyle;
+  insideRef.current = inside;
+  drawingIdRef.current = drawingId;
 
   useEffect(() => {
     const ids = new Set(nodes.map((node) => node.id));
@@ -969,62 +1044,188 @@ export function FlowCanvas({
     setHint(`${systemName.trim() || group.name} is in the library under System. It counts as one unit.`);
   }
 
-  async function save() {
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveTimerRef = useRef<number | null>(null);
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const lastSavedRef = useRef("");
+  const primedSaveRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  function currentGraph() {
+    return toFile(nodesRef.current, edgesRef.current, groupsRef.current, titleRef.current, cableStyleRef.current);
+  }
+
+  function currentSnapshot() {
+    return JSON.stringify({
+      id: drawingIdRef.current,
+      name: nameRef.current,
+      graph: currentGraph(),
+      inside: insideRef.current?.equipmentId ?? null,
+    });
+  }
+
+  async function flushSave(opts: { quiet?: boolean } = {}) {
+    const quiet = Boolean(opts.quiet);
     if (readOnly) {
-      setHint("This drawing is open read-only.");
+      if (!quiet) setHint("This drawing is open read-only.");
       return;
     }
-    if (inside) {
-      const row = catalog.equipment.find((item) => item.id === inside.equipmentId);
-      const previous = parseSystemGraph(row?.graphJson);
-      const kept = new Set(nodes.map((node) => `${node.id}`));
-      setHint("Saving the system…");
-      const result = await updateSystemGraph({
-        data: {
-          equipmentId: inside.equipmentId,
-          graph: {
-            nodes: nodes.map((node) => ({
-              id: node.id,
-              equipmentId: node.data.equipmentId,
-              unitId: node.data.unitId,
-              ip: node.data.ip,
-              specialNotes: node.data.specialNotes,
-              x: node.position.x,
-              y: node.position.y,
-            })),
-            edges: edges.map((edge) => ({
-              id: edge.id,
-              source: edge.source,
-              target: edge.target,
-              sourceHandle: edge.sourceHandle ?? "",
-              targetHandle: edge.targetHandle ?? "",
-              length: edge.data?.length ?? "",
-              notes: edge.data?.notes ?? "",
-              cableType: edge.data?.cableType ?? "",
-              throwdown: edge.data?.throwdown ?? "",
-            })),
-            ports: (previous?.ports ?? []).filter((port) => kept.has(port.nodeId)),
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const snap = currentSnapshot();
+    if (snap === lastSavedRef.current) return;
+    if (savingRef.current) {
+      pendingSaveRef.current = true;
+      return;
+    }
+    savingRef.current = true;
+    if (mountedRef.current) setSaveState("saving");
+    const working = insideRef.current;
+    const workingName = nameRef.current;
+    const workingNodes = nodesRef.current;
+    const workingEdges = edgesRef.current;
+    const workingGraph = currentGraph();
+    const workingId = drawingIdRef.current;
+    if (!quiet && mountedRef.current) setHint(working ? "Saving the system…" : "Saving…");
+    try {
+      if (working) {
+        const row = catalog.equipment.find((item) => item.id === working.equipmentId);
+        const previous = parseSystemGraph(row?.graphJson);
+        const kept = new Set(workingNodes.map((node) => `${node.id}`));
+        const result = await updateSystemGraph({
+          data: {
+            equipmentId: working.equipmentId,
+            graph: {
+              nodes: workingNodes.map((node) => ({
+                id: node.id,
+                equipmentId: node.data.equipmentId,
+                unitId: node.data.unitId,
+                ip: node.data.ip,
+                specialNotes: node.data.specialNotes,
+                x: node.position.x,
+                y: node.position.y,
+              })),
+              edges: workingEdges.map((edge) => ({
+                id: edge.id,
+                source: edge.source,
+                target: edge.target,
+                sourceHandle: edge.sourceHandle ?? "",
+                targetHandle: edge.targetHandle ?? "",
+                length: edge.data?.length ?? "",
+                notes: edge.data?.notes ?? "",
+                cableType: edge.data?.cableType ?? "",
+                throwdown: edge.data?.throwdown ?? "",
+              })),
+              ports: (previous?.ports ?? []).filter((port) => kept.has(port.nodeId)),
+            },
           },
-        },
-      });
-      if (result.error) {
-        setHint(result.error);
+        });
+        if (result.error) {
+          if (mountedRef.current) {
+            setSaveState("error");
+            setHint(result.error);
+          }
+          return;
+        }
+        lastSavedRef.current = currentSnapshot();
+        await onLibraryChange();
+        if (mountedRef.current) {
+          setSaveState("saved");
+          if (!quiet) setHint(`${working.label} saved. Back returns to the show.`);
+        }
         return;
       }
-      await onLibraryChange();
-      setHint(`${inside.label} saved. Back returns to the show.`);
-      return;
+      const result = await onSave({ id: workingId, name: workingName, graph: workingGraph });
+      if (result.error || result.id == null) {
+        if (mountedRef.current) {
+          setSaveState("error");
+          setHint(result.error || "The drawing could not be saved.");
+        }
+        return;
+      }
+      if (mountedRef.current) {
+        setDrawingId(result.id);
+        setConfirmDelete(false);
+        setSaveState("saved");
+        if (!quiet) setHint(`${workingName.trim() || "Drawing"} saved.`);
+      } else {
+        drawingIdRef.current = result.id;
+      }
+      lastSavedRef.current = JSON.stringify({
+        id: result.id,
+        name: workingName,
+        graph: workingGraph,
+        inside: null,
+      });
+    } finally {
+      savingRef.current = false;
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        void flushSave({ quiet: true });
+      }
     }
-    setHint("Saving…");
-    const result = await onSave({ id: drawingId, name, graph: toFile(nodes, edges, showGroups, title, cableStyle) });
-    if (result.error || result.id == null) {
-      setHint(result.error || "The drawing could not be saved.");
-      return;
-    }
-    setDrawingId(result.id);
-    setConfirmDelete(false);
-    setHint(`${name.trim() || "Drawing"} saved.`);
   }
+
+  const flushSaveRef = useRef(flushSave);
+  flushSaveRef.current = flushSave;
+
+  async function save() {
+    await flushSave({ quiet: false });
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const snap = JSON.stringify({
+      id: drawingId,
+      name,
+      graph: toFile(nodes, edges, showGroups, title, cableStyle),
+      inside: inside?.equipmentId ?? null,
+    });
+    if (!primedSaveRef.current) {
+      lastSavedRef.current = snap;
+      primedSaveRef.current = true;
+      return;
+    }
+    if (readOnly || snap === lastSavedRef.current) return;
+    if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSaveRef.current({ quiet: true });
+    }, 1000);
+    return () => {
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [nodes, edges, name, title, showGroups, cableStyle, inside, drawingId, readOnly]);
+
+  useEffect(() => {
+    const flush = () => {
+      void flushSaveRef.current({ quiet: true });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      flush();
+    };
+  }, []);
 
   function patchNode(id: string, patch: Partial<EquipmentNodeData>) {
     setNodes((current) => current.map((node) => (node.id === id ? { ...node, data: { ...node.data, ...patch } } : node)));
@@ -1153,13 +1354,22 @@ export function FlowCanvas({
 
   function openInside(node: EquipmentNode) {
     if (inside || node.data.kind !== "system") return;
+    void (async () => {
+      if (!readOnly) await flushSave({ quiet: true });
+      primedSaveRef.current = false;
+      enterSystem(node);
+    })();
+  }
+
+  function enterSystem(node: EquipmentNode) {
+    if (node.data.kind !== "system") return;
     const row = catalog.equipment.find((item) => item.id === node.data.equipmentId);
     const graph = parseSystemGraph(row?.graphJson);
     if (!graph?.nodes.length) {
       setHint("This system has no saved drawing.");
       return;
     }
-    showSnap.current = { nodes, edges, groups: showGroups, title, cableStyle };
+    showSnap.current = { nodes: nodesRef.current, edges: edgesRef.current, groups: groupsRef.current, title: titleRef.current, cableStyle: cableStyleRef.current };
     const file: DrawingFile = {
       title,
       cableStyle,
@@ -1199,15 +1409,19 @@ export function FlowCanvas({
   function backToShow() {
     const snap = showSnap.current;
     if (!snap) return;
-    setNodes(snap.nodes);
-    setEdges(snap.edges);
-    setShowGroups(snap.groups);
-    setTitle(snap.title);
-    setCableStyle(snap.cableStyle);
-    setInside(null);
-    showSnap.current = null;
-    setHint("Back on the show.");
-    requestAnimationFrame(() => flowRef.current?.fitView());
+    void (async () => {
+      if (!readOnly) await flushSave({ quiet: true });
+      primedSaveRef.current = false;
+      setNodes(snap.nodes);
+      setEdges(snap.edges);
+      setShowGroups(snap.groups);
+      setTitle(snap.title);
+      setCableStyle(snap.cableStyle);
+      setInside(null);
+      showSnap.current = null;
+      setHint("Back on the show.");
+      requestAnimationFrame(() => flowRef.current?.fitView());
+    })();
   }
 
   useEffect(() => {
@@ -1244,27 +1458,6 @@ export function FlowCanvas({
   }, []);
   const dockSide = instanceDockSide(viewportWidth);
   const canvasFrame = useRef<HTMLDivElement>(null);
-  const activeRef = useRef(active);
-  activeRef.current = active;
-  useEffect(() => {
-    if (sheet !== "draw") return;
-    const frame = canvasFrame.current;
-    if (!frame) return;
-    const fit = () => {
-      const current = activeRef.current;
-      const flow = flowRef.current;
-      if (!current || !flow) return;
-      const size = nodeBox(current);
-      void flow.fitBounds(
-        { x: current.position.x, y: current.position.y, width: size.width, height: size.height },
-        { padding: 0.45, duration: 0 },
-      );
-    };
-    const observer = new ResizeObserver(fit);
-    observer.observe(frame);
-    fit();
-    return () => observer.disconnect();
-  }, [active?.id, dockSide, sheet]);
   const focusIds = patchFocus ? new Set(patchFocus.nodeIds) : null;
   const patchEdges = focusIds ? edges.filter((edge) => focusIds.has(edge.source) || focusIds.has(edge.target)) : edges;
   const patch = patchRows(nodes, patchEdges);
@@ -1328,9 +1521,16 @@ export function FlowCanvas({
               {readOnly ? (
                 <span className="shrink-0 rounded-full border border-line px-4 py-2 text-sm">Read only</span>
               ) : (
-                <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
-                  Save
-                </button>
+                <>
+                  <button type="button" className="shrink-0 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => void save()}>
+                    Save
+                  </button>
+                  {saveState === "idle" ? null : (
+                    <span className="shrink-0 text-xs text-muted" aria-live="polite">
+                      {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save failed"}
+                    </span>
+                  )}
+                </>
               )}
               {readOnly ? null : (
                 <button type="button" className="shrink-0 rounded-full border border-line bg-panel px-4 py-2 text-sm" onClick={onCreate}>
@@ -1631,7 +1831,14 @@ export function FlowCanvas({
               const flow = flowRef.current;
               if (!flow) return;
               const point = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-              setMenu({ kind: "pane", x: event.clientX, y: event.clientY, flowX: point.x, flowY: point.y });
+              setMenu({
+                kind: "pane",
+                x: event.clientX,
+                y: event.clientY,
+                flowX: point.x,
+                flowY: point.y,
+                origin: `pane-${Date.now()}`,
+              });
             }}
             onNodeContextMenu={(event, node) => {
               event.preventDefault();
@@ -1803,8 +2010,7 @@ export function FlowCanvas({
             equipment={catalog.equipment}
             onClose={() => setMenu(null)}
             onPick={(item) => {
-              place(item, { x: menu.flowX, y: menu.flowY });
-              setMenu(null);
+              place(item, { x: menu.flowX, y: menu.flowY }, menu.origin);
             }}
           />
         ) : null}

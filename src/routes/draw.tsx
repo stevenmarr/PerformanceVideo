@@ -13,6 +13,7 @@ import {
   type DrawingSummary,
 } from "@/lib/drawing.functions";
 import { adminOpenCanvas, adminSaveCanvas } from "@/lib/admin/manage.functions";
+import { pickOpenDrawing, readLastDrawingId, writeLastDrawingId } from "@/lib/drawing-open";
 
 export const Route = createFileRoute("/draw")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -81,7 +82,8 @@ function DrawPage() {
         if (cancelled) return;
         setCatalog(library);
         setDrawings(list);
-        const preferred = list.find((item) => item.templateKey === "jpm") ?? list.find((item) => item.templateKey === "solventum") ?? list[0];
+        const lastId = typeof window !== "undefined" ? readLastDrawingId(window.localStorage, user.id) : null;
+        const preferred = pickOpenDrawing(list, lastId);
         if (!preferred) {
           setDrawing({ id: null, name: "Untitled show", graph: emptyDrawing() });
           return;
@@ -93,6 +95,7 @@ function DrawPage() {
             ? { id: opened.id, name: opened.name, graph: opened.graph }
             : { id: null, name: "Untitled show", graph: emptyDrawing() },
         );
+        if (opened?.id) writeLastDrawingId(window.localStorage, user.id, opened.id);
       })
       .catch(() => {
         if (!cancelled) setError("The drawing could not be loaded.");
@@ -105,7 +108,13 @@ function DrawPage() {
     };
   }, [user?.id, adminView, search.owner, search.drawing]);
 
+  function rememberDrawing(id: number | null) {
+    if (adminView || !user?.id || typeof window === "undefined") return;
+    writeLastDrawingId(window.localStorage, user.id, id);
+  }
+
   async function openDrawing(id: number) {
+    rememberDrawing(id);
     if (adminView) {
       const opened = await adminOpenCanvas({ data: { userId: search.owner, drawingId: id } });
       if (!opened) return;
@@ -148,6 +157,7 @@ function DrawPage() {
             }
             const result = await saveDrawing({ data: payload });
             if (result.id) {
+              rememberDrawing(result.id);
               const list = await listDrawings();
               setDrawings(list);
             }

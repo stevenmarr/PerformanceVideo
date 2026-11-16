@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
 import { GearNodeCard } from "@/components/gear-node";
 import { RedirectToSignIn } from "@/lib/auth/gates";
@@ -21,6 +21,7 @@ import {
   type Catalog,
   type EquipmentRow,
 } from "@/lib/catalog.functions";
+import { nextConnection } from "@/lib/library/next-connection";
 
 export const Route = createFileRoute("/library")({ component: LibraryPage });
 
@@ -138,6 +139,29 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [collapsedTypes, setCollapsedTypes] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem("pv-library-collapsed-types");
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+
+  function toggleType(typeName: string) {
+    setCollapsedTypes((current) => {
+      const next = current.includes(typeName)
+        ? current.filter((item) => item !== typeName)
+        : [...current, typeName];
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("pv-library-collapsed-types", JSON.stringify(next));
+      }
+      return next;
+    });
+  }
 
   const grouped = new Map<string, EquipmentRow[]>();
   for (const item of catalog.equipment) {
@@ -190,6 +214,9 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
         ? item.pins.map((pin) => ({ label: pin.label, direction: pin.direction, signal: pin.signal }))
         : [{ label: "", direction: "input", signal: catalog.connectionTypes[0]?.name ?? "" }],
     );
+    requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   async function remove(id: number) {
@@ -203,7 +230,12 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-      <form onSubmit={onSubmit} className="order-1 space-y-4 rounded-[var(--radius-card)] border border-line bg-panel p-5 lg:order-2">
+      <form
+        ref={formRef}
+        onSubmit={onSubmit}
+        className="order-1 space-y-4 rounded-[var(--radius-card)] border border-line bg-panel p-5 lg:order-2"
+        style={{ scrollMarginTop: "calc(var(--app-header-h, 64px) + 12px)" }}
+      >
         <h2 className="text-lg font-semibold">{editingId ? "Edit model" : "New model"}</h2>
         <label className="block text-sm">
           <span className="font-medium">Device type</span>
@@ -228,16 +260,6 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
         <label className="block text-sm">
           <span className="font-medium">Model</span>
           <input className={inputClass} value={model} onChange={(event) => setModel(event.target.value)} />
-        </label>
-        <label className="block text-sm">
-          <span className="font-medium">Kind of box</span>
-          <select className={inputClass} value={kind} onChange={(event) => setKind(event.target.value)}>
-            {KINDS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
         </label>
         <label className="block text-sm">
           <span className="font-medium">Notes</span>
@@ -303,7 +325,7 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
             onClick={() =>
               setPins((current) => [
                 ...current,
-                { label: "", direction: "output", signal: catalog.connectionTypes[0]?.name ?? "" },
+                nextConnection(current[current.length - 1], catalog.connectionTypes[0]?.name ?? ""),
               ])
             }
           >
@@ -346,9 +368,20 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
         {catalog.equipment.length === 0 ? (
           <p className="text-sm text-muted">No models yet. Save one, then place it on the drawing.</p>
         ) : null}
-        {[...grouped.entries()].map(([typeName, items]) => (
+        {[...grouped.entries()].map(([typeName, items]) => {
+          const collapsed = collapsedTypes.includes(typeName);
+          return (
           <section key={typeName}>
-            <h2 className="text-sm font-semibold tracking-[0.16em] text-muted uppercase">{typeName}</h2>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              aria-expanded={!collapsed}
+              onClick={() => toggleType(typeName)}
+            >
+              <h2 className="text-sm font-semibold tracking-[0.16em] text-muted uppercase">{typeName}</h2>
+              <span className="text-xs text-muted">{collapsed ? "Show" : "Hide"}</span>
+            </button>
+            {collapsed ? null : (
             <ul className="mt-3 divide-y divide-line rounded-[var(--radius-card)] border border-line bg-panel">
               {items.map((item) => (
                 <li key={item.id} className="flex items-start justify-between gap-4 px-4 py-4">
@@ -372,8 +405,10 @@ function GearPanel({ catalog, onChange }: { catalog: Catalog; onChange: () => Pr
                 </li>
               ))}
             </ul>
+            )}
           </section>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
