@@ -17,10 +17,14 @@ export function DevicePalette({
   open,
   onClose,
   onPlace,
+  systems = [],
+  onPlaceSystem,
 }: {
   open: boolean;
   onClose: () => void;
   onPlace: (id: string) => void;
+  systems?: { id: number; model: string; manufacturer: string; notes: string }[];
+  onPlaceSystem?: (id: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [manufacturer, setManufacturer] = useState("");
@@ -66,6 +70,14 @@ export function DevicePalette({
     const rest = hits.filter((hit) => !favorites.includes(hit.id) && !recent.includes(hit.id));
     return [...fav, ...rec, ...rest];
   }, [hits, favorites, recent, query]);
+
+  const visibleSystems = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return systems;
+    return systems.filter((item) =>
+      `${item.manufacturer} ${item.model} ${item.notes}`.toLowerCase().includes(needle),
+    );
+  }, [systems, query]);
 
   if (!open) return null;
 
@@ -121,6 +133,28 @@ export function DevicePalette({
             <option value="unverified">Unverified ports</option>
           </select>
         </div>
+        {visibleSystems.length ? (
+          <div className="mt-3">
+            <p className="px-2 text-[10px] font-semibold tracking-[0.14em] text-muted">Systems (custom)</p>
+            <ul className="mt-1 max-h-40 overflow-auto">
+              {visibleSystems.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl px-2 py-2 text-left hover:bg-paper"
+                    onClick={() => {
+                      onPlaceSystem?.(item.id);
+                      onClose();
+                    }}
+                  >
+                    <span className="block truncate text-sm font-semibold">{item.model}</span>
+                    <span className="block truncate text-xs text-muted">{item.notes || "Saved from a drawing group."}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {!imported ? (
           <p className="mt-3 text-sm text-muted">The global device library has not been imported yet.</p>
         ) : (
