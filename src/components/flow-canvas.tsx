@@ -32,6 +32,9 @@ import { SignalBoard } from "@/components/signal-board";
 import { deviceTiming } from "@/lib/signal/propagate";
 import { GearNodeCard, gearNodeSize, jackOffset } from "@/components/gear-node";
 import { DevicePalette } from "@/components/device-palette";
+import { LibraryPicker } from "@/components/library-picker";
+import { SystemBuilder, type BuilderSave } from "@/components/system-builder";
+import { Button, EmptyState, HelpPane } from "@/components/ui/kit";
 import { InstanceDock } from "@/components/instance-dock";
 import { JackConnectionLine, OrthogonalCable, RouteBoxContext, RouteContext } from "@/components/orthogonal-edge";
 import { instanceDockSide } from "@/lib/layout/instance-dock";
@@ -50,6 +53,18 @@ import { collapseWarnings, warningLine, rowsWithNote } from "@/lib/sheets/warnin
 import { ShopPrint } from "@/components/shop-print";
 import { routeEdges } from "@/lib/routing/orthogonal";
 import { adoptCatalogDevice } from "@/lib/catalog/lookup.functions";
+import { addEquipment, addManufacturer, updateEquipment } from "@/lib/catalog.functions";
+import { assistStatus, draftDevice } from "@/lib/assist/fill.functions";
+import { matchPhrase, parseShowPhrase } from "@/lib/assist/phrase";
+import type { DeviceProposal } from "@/lib/assist/proposal";
+import { pushHistory, redoHistory, undoHistory, type HistoryEntry } from "@/lib/edit-history";
+import { HELP } from "@/lib/help/copy";
+import { notesForDraft } from "@/lib/library/custom-system";
+import type { SystemDraft } from "@/lib/library/custom-system";
+import { gearOrigin } from "@/lib/library/picker";
+import { freshInterfaces } from "@/lib/network/modules";
+import { isNetworkSignal } from "@/lib/network/schema";
+import { checkDesign } from "@/lib/rules/check";
 import { applyPatchCsv, assignCable, CABLE_LENGTHS, formatCable, reassignCable, THROWDOWNS, type PatchBox, type PatchCable, type PatchField } from "@/lib/patch-edit";
 import { connectionsToCsv, parsePatchDocument, patchDocument, validatePatch, type PatchConnection, type PatchPort } from "@/lib/patch/document";
 
@@ -70,6 +85,7 @@ type EquipmentNodeData = {
   latencyFrames?: number;
   latencyEstimate?: boolean;
   format?: string;
+  custom?: boolean;
 };
 
 type EquipmentNode = Node<EquipmentNodeData, "equipment">;
@@ -147,6 +163,7 @@ function EquipmentNodeView({ data, selected }: NodeProps<EquipmentNode>) {
       color={data.color}
       pins={data.pins}
       signalColors={data.signalColors}
+      custom={Boolean(data.custom)}
     />
   );
 }
@@ -231,7 +248,10 @@ function hydrate(file: DrawingFile, catalog: Catalog) {
         color: catalog.deviceTypes.find((type) => type.id === row.deviceTypeId)?.color ?? "#3f3a34",
         pins: row.pins,
         signalColors: colors,
-        interfaces: item.interfaces ?? [],
+        interfaces: item.interfaces?.length
+          ? item.interfaces
+          : freshInterfaces(row.model, row.pins, item.unitId || row.model, row.network),
+        custom: row.origin === "custom" || row.kind === "system",
         latencyMs: item.latencyMs,
         latencyFrames: item.latencyFrames,
         latencyEstimate: item.latencyEstimate,
@@ -418,6 +438,19 @@ export function FlowCanvas({
 }) {
   const seeded = hydrate(drawing.graph, catalog);
   const [nodes, setNodes, onNodesChange] = useNodesState<EquipmentNode>(seeded.nodes);
+  const checkpointRef = useRef<(label: string) => void>(() => undefined);
+  const undoRef = useRef<() => void>(() => undefined);
+  const redoRef = useRef<() => void>(() => undefined);
+  const [historyNote, setHistoryNote] = useState("");
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [builder, setBuilder] = useState<SystemDraft | null>(null);
+  const [builderPlaced, setBuilderPlaced] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [assistOpen, setAssistOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [assistOn, setAssistOn] = useState(false);
+  const pastRef = useRef<HistoryEntry<{ nodes: EquipmentNode[]; edges: CableEdge[] }>[]>([]);
+  const futureRef = useRef<HistoryEntry<{ nodes: EquipmentNode[]; edges: CableEdge[] }>[]>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CableEdge>(seeded.edges);
   const [hint, setHint] = useState(
     seeded.missing
@@ -521,6 +554,12 @@ export function FlowCanvas({
     });
   }
 
+  useEffect(() => {
+    void assistStatus()
+      .then((status) => setAssistOn(status.enabled))
+      .catch(() => setAssistOn(false));
+  }, []);
+
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [networkOpen, setNetworkOpen] = useState(false);
   const [signalOpen, setSignalOpen] = useState(false);
@@ -528,10 +567,11 @@ export function FlowCanvas({
   const lastPlacedRef = useRef<LastPlaced | null>(null);
   const place = useCallback(
     (
-      item: Pick<EquipmentRow, "id" | "deviceType" | "deviceTypeId" | "manufacturer" | "model" | "kind" | "pins">,
+      item: Pick<EquipmentRow, "id" | "deviceType" | "deviceTypeId" | "manufacturer" | "model" | "kind" | "pins" | "network" | "origin">,
       at?: { x: number; y: number },
       origin?: string,
     ) => {
+      checkpointRef.current("place");
       const same = nodes.filter((node) => node.data.equipmentId === item.id);
       const stamp = `${item.deviceType.slice(0, 3).toUpperCase()}-${same.length + 1}`;
       const sized = gearNodeSize(item.pins, { ip: "", notes: "", unit: stamp });
@@ -557,7 +597,8 @@ export function FlowCanvas({
           color: catalog.deviceTypes.find((type) => type.id === item.deviceTypeId)?.color ?? "#3f3a34",
           pins: item.pins,
           signalColors,
-          interfaces: [],
+          interfaces: freshInterfaces(item.model, item.pins, stamp, item.network),
+          custom: gearOrigin(item) === "custom",
         },
       };
       lastPlacedRef.current = { ...position, width: sized.width, height: sized.height, origin: origin ?? lastPlacedRef.current?.origin ?? null };
@@ -584,6 +625,7 @@ export function FlowCanvas({
       setHint("Select a box first.");
       return;
     }
+    checkpointRef.current("duplicate");
     const created: EquipmentNode[] = [];
     for (const node of selected) {
       const same = [...nodes, ...created].filter((item) => item.data.equipmentId === node.data.equipmentId);
@@ -597,7 +639,8 @@ export function FlowCanvas({
           ...node.data,
           unitId: stamp,
           ip: "",
-          interfaces: [],
+          interfaces: freshInterfaces(node.data.model, node.data.pins, stamp, node.data.interfaces),
+          custom: node.data.custom,
         },
       };
       created.push(copy);
@@ -619,6 +662,19 @@ export function FlowCanvas({
         event.preventDefault();
         event.stopPropagation();
         if (!readOnly) duplicateSelection();
+      }
+      if ((event.metaKey || event.ctrlKey) && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redoRef.current();
+        else undoRef.current();
+      }
+      if ((event.metaKey || event.ctrlKey) && key === "y") {
+        event.preventDefault();
+        redoRef.current();
+      }
+      if (event.key === "?" || (event.shiftKey && event.key === "/")) {
+        event.preventDefault();
+        setShortcutsOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -658,6 +714,43 @@ export function FlowCanvas({
   const nodeGestureRef = useRef<{ id: string; snapshot: Set<string> } | null>(null);
   nodesRef.current = nodes;
   edgesRef.current = edges;
+  checkpointRef.current = (label) => {
+    pastRef.current = pushHistory(pastRef.current, {
+      label,
+      state: { nodes: nodesRef.current, edges: edgesRef.current },
+    });
+    futureRef.current = [];
+  };
+  undoRef.current = () => {
+    const result = undoHistory(pastRef.current, futureRef.current, {
+      label: "now",
+      state: { nodes: nodesRef.current, edges: edgesRef.current },
+    });
+    if (!result.present) {
+      setHistoryNote("Nothing to undo.");
+      return;
+    }
+    pastRef.current = result.past;
+    futureRef.current = result.future;
+    setNodes(result.present.state.nodes);
+    setEdges(result.present.state.edges);
+    setHistoryNote(`Undid ${result.present.label}.`);
+  };
+  redoRef.current = () => {
+    const result = redoHistory(pastRef.current, futureRef.current, {
+      label: "now",
+      state: { nodes: nodesRef.current, edges: edgesRef.current },
+    });
+    if (!result.present) {
+      setHistoryNote("Nothing to redo.");
+      return;
+    }
+    pastRef.current = result.past;
+    futureRef.current = result.future;
+    setNodes(result.present.state.nodes);
+    setEdges(result.present.state.edges);
+    setHistoryNote(`Redid ${result.present.label}.`);
+  };
   groupsRef.current = showGroups;
   titleRef.current = title;
   nameRef.current = name;
@@ -708,6 +801,7 @@ export function FlowCanvas({
         setHint(reason);
         return;
       }
+      checkpointRef.current("cable");
       const sourcePin = pinOf(nodes, connection.source, connection.sourceHandle);
       const targetPin = pinOf(nodes, connection.target, connection.targetHandle);
       const color = sourcePin ? (signalColors[sourcePin.signal] ?? "#e7e5e4") : "#e7e5e4";
@@ -756,6 +850,7 @@ export function FlowCanvas({
         setHint("Select a box or a cable first. A selected box has a light outline.");
         return;
       }
+      checkpointRef.current("remove");
       setNodes((current) => current.filter((node) => !doomed.has(node.id)));
       setEdges((current) =>
         current.filter((edge) => !edgeDoomed.has(edge.id) && !doomed.has(edge.source) && !doomed.has(edge.target)),
@@ -1341,7 +1436,7 @@ export function FlowCanvas({
     });
   }
 
-  function useSquare(next: CableStyle) {
+  function setCableCorners(next: CableStyle) {
     setCableStyle(next);
     setEdges((current) => current.map((edge) => ({ ...edge, type: edgeType(next) })));
     setHint(next === "square" ? "Cables turn at 90 degrees." : "Cables are curved.");
@@ -1525,6 +1620,126 @@ export function FlowCanvas({
     return { x: origin.x, y: origin.y, w: Math.max(1, far.x - origin.x), h: Math.max(1, far.y - origin.y) };
   })();
 
+  const findings = checkDesign(
+    nodes.map((node) => ({ id: node.id, label: node.data.unitId || node.data.model, pins: node.data.pins })),
+    edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+    })),
+  );
+
+  function openBuilder(id: number, editing: boolean) {
+    const row = catalog.equipment.find((item) => item.id === id);
+    if (!row) return;
+    const draft: SystemDraft = {
+      id: editing ? row.id : undefined,
+      name: editing ? row.model : `${row.model} copy`,
+      manufacturer: row.manufacturer,
+      modelNumber: "",
+      category: row.deviceType,
+      notes: row.notes,
+      ports: row.pins.map((pin) => ({
+        id: pin.id,
+        label: pin.label,
+        direction: pin.direction === "output" ? "output" : "input",
+        signal: pin.signal,
+        connector: pin.connector ?? "",
+      })),
+      network: row.network ?? [],
+    };
+    setLibraryOpen(false);
+    setBuilderPlaced(editing && nodes.some((node) => node.selected && node.data.equipmentId === id));
+    setBuilder(draft);
+  }
+
+  async function saveBuilder({ draft, scope }: BuilderSave): Promise<string | null> {
+    let library = catalog;
+    let maker = library.manufacturers.find((item) => item.name.toLowerCase() === draft.manufacturer.trim().toLowerCase());
+    if (!maker) {
+      const added = await addManufacturer({ data: { name: draft.manufacturer.trim(), website: "" } });
+      if (added.error && !/already/.test(added.error)) return added.error;
+      const refreshed = await onLibraryChange();
+      if (refreshed) library = refreshed;
+      maker = library.manufacturers.find((item) => item.name.toLowerCase() === draft.manufacturer.trim().toLowerCase());
+    }
+    const type = library.deviceTypes.find((item) => item.name === draft.category);
+    if (!maker || !type) return "Pick a category that is already in the library.";
+    const pins = draft.ports
+      .filter((port) => port.label.trim() && port.signal.trim())
+      .map((port) => ({
+        id: port.id,
+        label: port.label.trim(),
+        direction: port.direction,
+        signal: port.signal,
+        connector: port.connector,
+      }));
+    const base = {
+      deviceTypeId: type.id,
+      manufacturerId: maker.id,
+      model: draft.name.trim(),
+      kind: "device",
+      notes: notesForDraft(draft),
+      website: "",
+      origin: "custom" as const,
+      network: draft.network,
+      pins,
+    };
+    const selected = nodes.find((node) => node.selected);
+    if (!draft.id || (scope === "one" && selected)) {
+      const model = draft.id && scope === "one" ? `${draft.name.trim()} ${selected?.data.unitId || "box"}` : base.model;
+      const result = await addEquipment({ data: { ...base, model } });
+      if (result.error || result.id == null) return result.error || "The module could not be saved.";
+      if (draft.id && scope === "one" && selected) {
+        checkpointRef.current("edit module");
+        const synced = syncSystemInstances(
+          nodes.map((node) => (node.id === selected.id ? { ...node, data: { ...node.data, equipmentId: result.id as number } } : node)),
+          edges,
+          {
+            id: result.id,
+            model,
+            manufacturer: maker.name,
+            deviceType: type.name,
+            kind: "device",
+            color: type.color,
+            pins,
+          },
+        );
+        setNodes(synced.nodes);
+        setEdges(synced.edges);
+        setHistoryNote(systemUpdateHint(model, synced.updatedInstances, synced.removedCables));
+      } else {
+        const refreshed = await onLibraryChange();
+        const saved = (refreshed ?? catalog).equipment.find((item) => item.id === result.id);
+        if (saved) place(saved);
+      }
+      await onLibraryChange();
+      setBuilder(null);
+      setHint("Custom module saved. Review it on the drawing before you trust the patch.");
+      return null;
+    }
+    const updated = await updateEquipment({ data: { ...base, id: draft.id } });
+    if (updated.error) return updated.error;
+    checkpointRef.current("edit module");
+    const synced = syncSystemInstances(nodes, edges, {
+      id: draft.id,
+      model: base.model,
+      manufacturer: maker.name,
+      deviceType: type.name,
+      kind: "device",
+      color: type.color,
+      pins,
+    });
+    setNodes(synced.nodes);
+    setEdges(synced.edges);
+    await onLibraryChange();
+    setBuilder(null);
+    setHistoryNote(systemUpdateHint(base.model, synced.updatedInstances, synced.removedCables));
+    return null;
+  }
+
   return (
     // `relative` anchors the Network, Signal and Devices overlays (absolute
     // inset-0) to the drawing pane, below the app header, not to the page.
@@ -1602,10 +1817,17 @@ export function FlowCanvas({
               <button
                 type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${cableStyle === "square" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
-                onClick={() => useSquare(cableStyle === "square" ? "curve" : "square")}
+                onClick={() => setCableCorners(cableStyle === "square" ? "curve" : "square")}
               >
                 90° cables
               </button>
+              <Button title={HELP.undo} onClick={() => undoRef.current()}>Undo</Button>
+              <Button title={HELP.redo} onClick={() => redoRef.current()}>Redo</Button>
+              <Button title={HELP.library} onClick={() => setLibraryOpen(true)}>Library</Button>
+              <Button title={HELP.rules} onClick={() => setRulesOpen(true)}>Check</Button>
+              <Button title={HELP.customName} onClick={() => { setBuilderPlaced(false); setBuilder({ name: "", manufacturer: "", modelNumber: "", category: catalog.deviceTypes[0]?.name ?? "Switcher", notes: "", ports: [{ id: "pin-1", label: "", direction: "input", signal: catalog.connectionTypes[0]?.name ?? "", connector: "" }], network: [] }); }}>Build</Button>
+              {assistOn ? <Button title={HELP.phrase} onClick={() => setAssistOpen(true)}>Describe</Button> : null}
+              <Button title={HELP.drawing} onClick={() => setShortcutsOpen(true)}>Shortcuts</Button>
               <button
                 type="button"
                 className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold ${sheet === "patch" ? "bg-ink text-paper" : "border border-line bg-panel"}`}
@@ -1642,6 +1864,115 @@ export function FlowCanvas({
           )
         : null}
       {gearBar ? <GearStrip equipment={catalog.equipment} onPick={(item) => place(item)} /> : null}
+      {libraryOpen ? (
+        <LibraryPicker
+          gear={catalog.equipment.map((item) => ({
+            id: item.id,
+            model: item.model,
+            manufacturer: item.manufacturer,
+            deviceType: item.deviceType,
+            kind: item.kind,
+            origin: gearOrigin(item),
+            notes: item.notes,
+          }))}
+          onClose={() => setLibraryOpen(false)}
+          onPlace={(id) => {
+            const item = catalog.equipment.find((row) => row.id === id);
+            if (item) place(item);
+            setLibraryOpen(false);
+          }}
+          onEdit={(id) => openBuilder(id, true)}
+          onDuplicate={(id) => openBuilder(id, false)}
+          onBuild={() => {
+            setLibraryOpen(false);
+            setBuilderPlaced(false);
+            setBuilder({
+              name: "",
+              manufacturer: "",
+              modelNumber: "",
+              category: catalog.deviceTypes[0]?.name ?? "Switcher",
+              notes: "",
+              ports: [{ id: "pin-1", label: "", direction: "input", signal: catalog.connectionTypes[0]?.name ?? "", connector: "" }],
+              network: [],
+            });
+          }}
+        />
+      ) : null}
+      {builder ? (
+        <SystemBuilder
+          initial={builder}
+          placed={builderPlaced}
+          categories={catalog.deviceTypes.map((type) => type.name)}
+          manufacturers={catalog.manufacturers.map((maker) => maker.name)}
+          signals={catalog.connectionTypes.map((signal) => signal.name)}
+          onClose={() => setBuilder(null)}
+          onSave={saveBuilder}
+        />
+      ) : null}
+      {rulesOpen ? (
+        <div className="absolute inset-0 z-30 overflow-auto bg-paper p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Design check</h2>
+            <Button variant="primary" onClick={() => setRulesOpen(false)}>Back to drawing</Button>
+          </div>
+          <HelpPane title="What this flags">{HELP.rules}</HelpPane>
+          <ul className="mt-4 space-y-2">
+            {findings.length ? findings.map((finding) => (
+              <li key={`${finding.edgeId}-${finding.message}`} className="ui-panel text-sm">
+                <p className={finding.level === "error" ? "text-danger" : ""}>{finding.message}</p>
+                {finding.suggestion ? <p className="mt-1 text-muted">Pull {finding.suggestion}.</p> : null}
+              </li>
+            )) : <li className="text-sm text-muted">Every cable can lock. A slower SDI rate on a faster SDI jack is allowed.</li>}
+          </ul>
+        </div>
+      ) : null}
+      {shortcutsOpen ? (
+        <div className="absolute inset-0 z-30 overflow-auto bg-paper p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Shortcuts</h2>
+            <Button variant="primary" onClick={() => setShortcutsOpen(false)}>Back to drawing</Button>
+          </div>
+          <HelpPane title="Drawing">{HELP.drawing}</HelpPane>
+          <ul className="mt-4 space-y-1 text-sm">
+            <li>Ctrl+Z undo, Ctrl+Shift+Z redo. {HELP.undo}</li>
+            <li>Ctrl+K opens the manufacturer search. Ctrl+D duplicates the selection.</li>
+            <li>Delete removes the selection. Space pans. Drag an empty area to marquee-select.</li>
+            <li>Right-click a box for its patch. Double-click a system to open the inside drawing.</li>
+          </ul>
+        </div>
+      ) : null}
+      {assistOpen ? (
+        <AssistBox
+          library={catalog.equipment.map((item) => ({ id: item.id, model: item.model, manufacturer: item.manufacturer, deviceType: item.deviceType }))}
+          onClose={() => setAssistOpen(false)}
+          onPlace={(id, count) => {
+            const item = catalog.equipment.find((row) => row.id === id);
+            if (!item) return;
+            for (let index = 0; index < count; index += 1) place(item);
+          }}
+          onDraft={(proposal) => {
+            const signals = catalog.connectionTypes.map((signal) => signal.name);
+            const categories = catalog.deviceTypes.map((type) => type.name);
+            setAssistOpen(false);
+            setBuilderPlaced(false);
+            setBuilder({
+              name: proposal.model,
+              manufacturer: proposal.manufacturer || "Unbranded",
+              modelNumber: proposal.model,
+              category: categories.find((name) => name.toLowerCase() === proposal.category.toLowerCase()) ?? categories[0] ?? "Switcher",
+              notes: proposal.notes || "Drafted from the model. Check every jack before you save.",
+              ports: proposal.ports.map((port, index) => ({
+                id: `pin-${index + 1}`,
+                label: port.label,
+                direction: port.direction,
+                signal: signals.find((name) => name.toLowerCase() === port.signal.toLowerCase()) ?? signals[0] ?? "",
+                connector: port.connector,
+              })),
+              network: proposal.network,
+            });
+          }}
+        />
+      ) : null}
       {signalOpen ? (
         <SignalBoard
           devices={nodes.map((node) =>
@@ -1716,6 +2047,12 @@ export function FlowCanvas({
               ),
             );
           }}
+          links={edges.flatMap((edge) => {
+            const from = pinOf(nodes, edge.source, edge.sourceHandle);
+            const to = pinOf(nodes, edge.target, edge.targetHandle);
+            if (!from || !to || !isNetworkSignal(from.signal) || !isNetworkSignal(to.signal)) return [];
+            return [{ id: edge.id, sourceId: edge.source, sourcePort: from.label, targetId: edge.target, targetPort: to.label }];
+          })}
           onClose={() => setNetworkOpen(false)}
         />
       ) : null}
@@ -1736,7 +2073,7 @@ export function FlowCanvas({
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-3 border-b border-line bg-panel px-3 py-1.5">
-          <p className="truncate text-sm text-muted">{hint}</p>
+          <p className="truncate text-sm text-muted">{historyNote || hint}</p>
           {gearBar ? null : <p className="shrink-0 text-xs text-muted">Right-click the canvas to add gear.</p>}
           {titleLine ? <p className="truncate text-xs text-muted">{titleLine}</p> : null}
         </div>
@@ -1818,6 +2155,19 @@ export function FlowCanvas({
         <div className={`flex min-h-0 flex-1 ${dockSide === "side" ? "flex-row" : "flex-col"}`}>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div ref={canvasFrame} className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+        {nodes.length === 0 && sheet === "draw" ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
+            <div className="pointer-events-auto max-w-md">
+              <EmptyState title="No gear on this show yet">
+                <p>{HELP.emptyCanvas}</p>
+                <div className="mt-3 flex justify-center gap-2">
+                  <Button onClick={() => setLibraryOpen(true)}>Open library</Button>
+                  <Button variant="primary" onClick={() => setPaletteOpen(true)}>Devices</Button>
+                </div>
+              </EmptyState>
+            </div>
+          </div>
+        ) : null}
         <div className="absolute inset-0" onPointerDownCapture={onCanvasPointerDown} onClickCapture={onCanvasClickCapture}>
           <RouteContext.Provider value={routes}>
           <RouteBoxContext.Provider value={boxes}>
@@ -2193,10 +2543,13 @@ export function FlowCanvas({
             manufacturer={active.data.manufacturer}
             model={active.data.model}
             kind={active.data.kind}
+            custom={Boolean(active.data.custom) || active.data.kind === "system"}
             unitId={active.data.unitId}
             ip={active.data.ip}
             notes={active.data.specialNotes}
             readOnly={readOnly}
+            onEdit={readOnly ? undefined : () => openBuilder(active.data.equipmentId, true)}
+            onDuplicate={readOnly ? undefined : () => openBuilder(active.data.equipmentId, false)}
             onUnitId={(unitId) => {
               patchNode(active.id, { unitId });
               const clash = nodes.some((node) => node.id !== active.id && node.data.unitId === unitId && unitId.trim());
@@ -3117,6 +3470,101 @@ function GearMenu({
         </button>
       </div>
       <GearColumns equipment={equipment} onPick={onPick} compact />
+    </div>
+  );
+}
+
+function AssistBox({
+  library,
+  onClose,
+  onPlace,
+  onDraft,
+}: {
+  library: { id: number; model: string; manufacturer: string; deviceType: string }[];
+  onClose: () => void;
+  onPlace: (id: number, count: number) => void;
+  onDraft: (proposal: DeviceProposal) => void;
+}) {
+  const [phrase, setPhrase] = useState("");
+  const [model, setModel] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const plan = parseShowPhrase(phrase);
+  const matches = plan ? matchPhrase(plan, library) : [];
+
+  return (
+    <div className="absolute inset-0 z-30 overflow-auto bg-paper p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Describe the show</h2>
+        <Button variant="primary" onClick={onClose}>Back to drawing</Button>
+      </div>
+      <HelpPane title="Review before it places">{HELP.phrase} {HELP.datasheet}</HelpPane>
+      <div className="mt-4 max-w-xl space-y-3">
+        <label className="block text-sm">
+          Show description
+          <textarea className="ui-input mt-1 min-h-20" value={phrase} placeholder="add a 2 M/E switcher with 8 cameras" onChange={(event) => setPhrase(event.target.value)} />
+        </label>
+        {plan ? (
+          <ul className="space-y-1 text-sm">
+            {matches.map((match) => (
+              <li key={`${match.item.category}-${match.item.note}`}>
+                {match.item.count} × {match.gear ? `${match.gear.manufacturer} ${match.gear.model}` : `${match.item.category} (pick one in the library)`}
+              </li>
+            ))}
+          </ul>
+        ) : phrase.trim() ? <p className="text-sm text-muted">Say how many cameras, switchers, monitors, recorders, or projectors.</p> : null}
+        <Button
+          variant="primary"
+          disabled={!matches.some((match) => match.gear)}
+          onClick={() => {
+            for (const match of matches) {
+              if (match.gear) onPlace(match.gear.id, match.item.count);
+            }
+            onClose();
+          }}
+        >
+          Place for review
+        </Button>
+        <label className="block text-sm">
+          Model number or datasheet text
+          <textarea className="ui-input mt-1 min-h-20" value={model} onChange={(event) => setModel(event.target.value)} />
+        </label>
+        <input
+          type="file"
+          accept="application/pdf,.pdf,text/plain"
+          className="text-sm"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              const text = String(reader.result ?? "");
+              setModel((current) => `${current}\n${text.slice(0, 4000)}`.trim());
+            };
+            reader.readAsText(file);
+          }}
+        />
+        <Button
+          disabled={busy || !model.trim()}
+          onClick={() => {
+            setBusy(true);
+            setNote("");
+            void draftDevice({ data: { model, text: model } })
+              .then((result) => {
+                if (!result.enabled) setNote("This assist is off until the server has a key.");
+                else if (result.error) setNote(result.error);
+                else if (result.proposal) {
+                  onDraft(result.proposal);
+                }
+              })
+              .catch(() => setNote("The model could not be reached."))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Reading…" : "Draft jacks"}
+        </Button>
+        {note ? <p className="text-sm text-muted">{note}</p> : null}
+      </div>
     </div>
   );
 }

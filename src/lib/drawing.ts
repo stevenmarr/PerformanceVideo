@@ -1,5 +1,7 @@
 /** A saved show. Gear inside a system is not stored here; the system is one node. */
 
+import { migratePorts, type NetworkPort } from "./network/schema.ts";
+
 export type DrawingTitle = {
   event: string;
   location: string;
@@ -8,16 +10,7 @@ export type DrawingTitle = {
   version: string;
 };
 
-export type NetworkInterface = {
-  name: string;
-  mode: "dhcp" | "static";
-  address: string;
-  cidr: number | null;
-  gateway: string;
-  vlan: number | null;
-  mac: string;
-  hostname: string;
-};
+export type NetworkInterface = NetworkPort;
 
 export type DrawingNode = {
   id: string;
@@ -90,7 +83,7 @@ export function asDrawingFile(raw: unknown): DrawingFile {
     nodes: Array.isArray(file.nodes)
       ? file.nodes.map((node) => ({
           ...node,
-          interfaces: Array.isArray(node.interfaces) ? node.interfaces : [],
+          interfaces: migratePorts(node.interfaces),
         }))
       : [],
     edges: Array.isArray(file.edges)

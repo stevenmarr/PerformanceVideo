@@ -90,11 +90,12 @@ export const CORPORATE_GEAR: GearSeed[] = [
     maker: "Blackmagic Design",
     model: "ATEM Mini Pro",
     kind: "device",
-    notes: "HDMI switcher. SDI cannot land here.",
+    notes: "HDMI switcher. SDI cannot land here. Ethernet is the ATEM control port.",
     pins: [
       ...jacks("HDMI In", 4, "input", "HDMI"),
       ["Program", "output", "HDMI"],
       ["Multiview", "output", "HDMI"],
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -464,6 +465,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ["SDI Loop", "output", "3G-SDI"],
       ...jacks("Data", 10, "output", "LED data"),
       ...jacks("OPT", 2, "output", "LED fiber"),
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -480,6 +482,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ["SDI Loop", "output", "12G-SDI"],
       ...jacks("Data", 20, "output", "LED data"),
       ...jacks("OPT", 4, "output", "LED fiber"),
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -515,6 +518,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ["HDMI In", "input", "HDMI"],
       ["DisplayPort In", "input", "DisplayPort"],
       ...jacks("HDMI Out", 4, "output", "HDMI"),
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -530,6 +534,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ["HDMI Out", "output", "HDMI"],
       ["DisplayPort Out", "output", "DisplayPort"],
       ...jacks("SDI Out", 4, "output", "12G-SDI"),
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -819,6 +824,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ["HDMI In", "input", "HDMI"],
       ["DisplayPort In", "input", "DisplayPort"],
       ["SDI In", "input", "3G-SDI"],
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -883,6 +889,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
     pins: [
       ...jacks("HDMI In", 8, "input", "HDMI"),
       ...jacks("HDMI Out", 3, "output", "HDMI"),
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -896,6 +903,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ...jacks("SDI In", 8, "input", "3G-SDI"),
       ...jacks("SDI Out", 12, "output", "3G-SDI"),
       ["Multiview", "output", "HDMI"],
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -941,6 +949,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ["SDI In 2", "input", "3G-SDI"],
       ["SDI Loop 1", "output", "3G-SDI"],
       ["SDI Loop 2", "output", "3G-SDI"],
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {
@@ -996,7 +1005,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
     model: "Smart Videohub 40x40 12G",
     kind: "device",
     notes: "All forty inputs and forty outputs. A 3G-SDI source can land on these 12G inputs.",
-    pins: [...jacks("In", 40, "input", "12G-SDI"), ...jacks("Out", 40, "output", "12G-SDI")],
+    pins: [...jacks("In", 40, "input", "12G-SDI"), ...jacks("Out", 40, "output", "12G-SDI"), ["LAN", "output", "Ethernet"]],
   },
   {
     pack: 4,
@@ -1005,7 +1014,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
     model: "Smart Videohub 20x20 12G",
     kind: "device",
     notes: "Twenty 12G inputs and twenty 12G outputs. A 3G source can land on these inputs. The JPM sheet uses the first sixteen.",
-    pins: [...jacks("In", 20, "input", "12G-SDI"), ...jacks("Out", 20, "output", "12G-SDI")],
+    pins: [...jacks("In", 20, "input", "12G-SDI"), ...jacks("Out", 20, "output", "12G-SDI"), ["LAN", "output", "Ethernet"]],
   },
   {
     pack: 4,
@@ -1020,6 +1029,7 @@ export const CORPORATE_GEAR: GearSeed[] = [
       ...Array.from({ length: 16 }, (_, index) => [`In ${index + 21}`, "input", "HDMI"] as GearPin),
       ...jacks("Out", 16, "output", "HDMI"),
       ...Array.from({ length: 8 }, (_, index) => [`Out ${index + 17}`, "output", "12G-SDI"] as GearPin),
+      ["LAN", "output", "Ethernet"],
     ],
   },
   {

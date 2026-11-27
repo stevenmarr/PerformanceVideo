@@ -13,12 +13,15 @@ import {
 } from "@/lib/corporate-nodes";
 import { seedJpmDrawing } from "@/lib/seed-jpm";
 import { seedSolventumDrawing } from "@/lib/seed-solventum";
+import { applyModuleFixes, networkTemplates } from "@/lib/network/modules";
+import { migratePorts, type NetworkPort } from "@/lib/network/schema";
 
 export type Pin = {
   id: string;
   label: string;
   direction: "input" | "output";
   signal: string;
+  connector?: string;
 };
 
 export type DeviceTypeRow = { id: number; name: string; color: string };
@@ -47,6 +50,8 @@ export type EquipmentRow = {
   manufacturer: string;
   pins: Pin[];
   graphJson: string;
+  origin?: "builtin" | "custom";
+  network?: NetworkPort[];
 };
 export type StudioRow = {
   companyName: string;
@@ -92,16 +97,30 @@ function hexColor(value: unknown): string | null {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : null;
 }
 
+function parseJsonArray(raw: string | null | undefined): unknown[] {
+  try {
+    const parsed = JSON.parse(raw || "[]") as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function parsePins(raw: string): Pin[] {
   try {
     const parsed = JSON.parse(raw) as Pin[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (pin) =>
-        pin &&
-        typeof pin.label === "string" &&
-        (pin.direction === "input" || pin.direction === "output"),
-    );
+    return parsed
+      .filter(
+        (pin) =>
+          pin &&
+          typeof pin.label === "string" &&
+          (pin.direction === "input" || pin.direction === "output"),
+      )
+      .map((pin) => ({
+        ...pin,
+        connector: typeof pin.connector === "string" ? pin.connector : undefined,
+      }));
   } catch {
     return [];
   }
@@ -200,8 +219,8 @@ async function seedCorporateGear(userId: string, already: number) {
   const typeId = (name: string) => types.find((row) => row.name === name)?.id;
   const makerId = (name: string) => makers.find((row) => row.name === name)?.id;
 
-  for (const sample of CORPORATE_GEAR) {
-    if ((sample.pack ?? 1) <= already) continue;
+  for (const raw of CORPORATE_GEAR) {
+    const sample = applyModuleFixes(raw);
     const deviceTypeId = typeId(sample.type);
     const manufacturerId = makerId(sample.maker);
     if (!deviceTypeId || !manufacturerId) continue;
@@ -211,15 +230,38 @@ async function seedCorporateGear(userId: string, already: number) {
       direction,
       signal,
     }));
-    await sql`
-      insert into equipment (
-        user_id, device_type_id, manufacturer_id, model, kind, notes, product_website, pins_json
-      ) values (
-        ${userId}, ${deviceTypeId}, ${manufacturerId}, ${sample.model}, ${sample.kind},
-        ${sample.notes}, ${""}, ${JSON.stringify(pins)}
-      )
-      on conflict (user_id, device_type_id, manufacturer_id, model) do nothing
+    const network = networkTemplates(sample.model, pins);
+    if ((sample.pack ?? 1) > already) {
+      await sql`
+        insert into equipment (
+          user_id, device_type_id, manufacturer_id, model, kind, notes, product_website, pins_json, origin, network_json
+        ) values (
+          ${userId}, ${deviceTypeId}, ${manufacturerId}, ${sample.model}, ${sample.kind},
+          ${sample.notes}, ${""}, ${JSON.stringify(pins)}, ${"builtin"}, ${JSON.stringify(network)}
+        )
+        on conflict (user_id, device_type_id, manufacturer_id, model) do nothing
+      `;
+    }
+    const rows = await sql<{ id: number; pins_json: string; network_json: string }>`
+      select id, pins_json, network_json from equipment
+      where user_id = ${userId} and manufacturer_id = ${manufacturerId} and model = ${sample.model}
     `;
+    const row = rows[0];
+    if (!row) continue;
+    const current = parsePins(row.pins_json);
+    const hasEthernet = current.some((pin) => /ethernet|dante|ndi|2110|2022/i.test(pin.signal));
+    const lan = pins.filter((pin) => /ethernet/i.test(pin.signal));
+    const nextPins = hasEthernet || !lan.length
+      ? current
+      : [...current, ...lan.map((pin, index) => ({ ...pin, id: `pin-${current.length + index + 1}` }))];
+    const nextNetwork = row.network_json && row.network_json !== "[]" ? row.network_json : JSON.stringify(network);
+    if (JSON.stringify(nextPins) !== JSON.stringify(current) || nextNetwork !== row.network_json) {
+      await sql`
+        update equipment
+        set pins_json = ${JSON.stringify(nextPins)}, network_json = ${nextNetwork}
+        where id = ${row.id} and user_id = ${userId}
+      `;
+    }
   }
 }
 
@@ -267,11 +309,13 @@ export async function readCatalog(userId: string): Promise<Catalog> {
     manufacturer: string;
     pins_json: string;
     graph_json: string;
+    origin: string;
+    network_json: string;
   }>`
     select e.id, e.model, e.kind, e.notes, e.product_website,
            e.device_type_id, d.name as device_type,
            e.manufacturer_id, m.name as manufacturer,
-           e.pins_json, e.graph_json
+           e.pins_json, e.graph_json, e.origin, e.network_json
     from equipment e
     join device_types d on d.id = e.device_type_id and d.user_id = e.user_id
     join manufacturers m on m.id = e.manufacturer_id and m.user_id = e.user_id
@@ -318,6 +362,8 @@ export async function readCatalog(userId: string): Promise<Catalog> {
       manufacturer: row.manufacturer,
       pins: parsePins(row.pins_json),
       graphJson: row.graph_json ?? "",
+      origin: row.origin === "custom" || row.kind === "system" ? "custom" : "builtin",
+      network: migratePorts(parseJsonArray(row.network_json)),
     })),
     studio: studio
       ? {
@@ -477,8 +523,29 @@ type EquipmentInput = {
   kind: string;
   notes: string;
   website: string;
-  pins: { label: string; direction: string; signal: string }[];
+  origin?: string;
+  network?: NetworkPort[];
+  pins: { id?: string; label: string; direction: string; signal: string; connector?: string }[];
 };
+
+function collectPins(rows: EquipmentInput["pins"]): { error: string; pins: Pin[] } {
+  const pins: Pin[] = [];
+  for (const [index, pin] of (rows ?? []).entries()) {
+    const label = clean(pin.label, 48);
+    const signal = clean(pin.signal, 64);
+    const direction = pin.direction === "output" ? "output" : pin.direction === "input" ? "input" : "";
+    if (!label && !signal) continue;
+    if (!label || !signal || !direction) {
+      return { error: "Each connection needs a name, a direction, and a signal.", pins: [] };
+    }
+    const requested = clean(pin.id, 32);
+    const id = /^pin-[a-z0-9-]+$/i.test(requested) ? requested : `pin-${index + 1}`;
+    const connector = clean(pin.connector, 32);
+    pins.push({ id, label, direction, signal, ...(connector ? { connector } : {}) });
+  }
+  if (!pins.length) return { error: "Add at least one connection.", pins: [] };
+  return { error: "", pins };
+}
 
 export const addEquipment = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -490,21 +557,12 @@ export const addEquipment = createServerFn({ method: "POST" })
     const website = clean(data.website, 200);
     const deviceTypeId = Number(data.deviceTypeId);
     const manufacturerId = Number(data.manufacturerId);
-    if (!model) return { error: "Model name is required." };
-    if (!deviceTypeId || !manufacturerId) return { error: "Device type and manufacturer are required." };
+    if (!model) return { error: "Model name is required.", id: null };
+    if (!deviceTypeId || !manufacturerId) return { error: "Device type and manufacturer are required.", id: null };
 
-    const pins: Pin[] = [];
-    for (const [index, pin] of (data.pins ?? []).entries()) {
-      const label = clean(pin.label, 48);
-      const signal = clean(pin.signal, 64);
-      const direction = pin.direction === "output" ? "output" : pin.direction === "input" ? "input" : "";
-      if (!label && !signal) continue;
-      if (!label || !signal || !direction) {
-        return { error: "Each connection needs a name, a direction, and a signal." };
-      }
-      pins.push({ id: `pin-${index + 1}`, label, direction, signal });
-    }
-    if (pins.length === 0) return { error: "Add at least one connection." };
+    const collected = collectPins(data.pins);
+    if (collected.error) return { error: collected.error, id: null };
+    const pins = collected.pins;
 
     const sql = await getSql();
     const typeOk = await sql`
@@ -513,13 +571,13 @@ export const addEquipment = createServerFn({ method: "POST" })
     const makerOk = await sql`
       select id from manufacturers where id = ${manufacturerId} and user_id = ${context.userId}
     `;
-    if (!typeOk.length || !makerOk.length) return { error: "Device type or manufacturer was not found." };
+    if (!typeOk.length || !makerOk.length) return { error: "Device type or manufacturer was not found.", id: null };
     const knownSignals = await sql<{ name: string }>`
       select name from connection_types where user_id = ${context.userId}
     `;
     const signalNames = new Set(knownSignals.map((row) => row.name));
     if (pins.some((pin) => !signalNames.has(pin.signal))) {
-      return { error: "Every connection must use a signal from your library." };
+      return { error: "Every connection must use a signal from your library.", id: null };
     }
     const dup = await sql`
       select id from equipment
@@ -528,17 +586,20 @@ export const addEquipment = createServerFn({ method: "POST" })
         and manufacturer_id = ${manufacturerId}
         and model = ${model}
     `;
-    if (dup.length) return { error: "That model is already saved." };
+    if (dup.length) return { error: "That model is already saved.", id: null };
 
-    await sql`
+    const origin = data.origin === "custom" ? "custom" : "builtin";
+    const network = JSON.stringify(migratePorts(data.network ?? []));
+    const inserted = await sql<{ id: number }>`
       insert into equipment (
-        user_id, device_type_id, manufacturer_id, model, kind, notes, product_website, pins_json
+        user_id, device_type_id, manufacturer_id, model, kind, notes, product_website, pins_json, origin, network_json
       ) values (
         ${context.userId}, ${deviceTypeId}, ${manufacturerId}, ${model}, ${kind},
-        ${notes}, ${website}, ${JSON.stringify(pins)}
+        ${notes}, ${website}, ${JSON.stringify(pins)}, ${origin}, ${network}
       )
+      returning id
     `;
-    return { error: null };
+    return { error: null, id: inserted[0]?.id ?? null };
   });
 
 export const deleteEquipment = createServerFn({ method: "POST" })
@@ -676,18 +737,9 @@ export const updateEquipment = createServerFn({ method: "POST" })
     if (!model) return { error: "Model name is required." };
     if (!deviceTypeId || !manufacturerId) return { error: "Device type and manufacturer are required." };
 
-    const pins: Pin[] = [];
-    for (const [index, pin] of (data.pins ?? []).entries()) {
-      const label = clean(pin.label, 48);
-      const signal = clean(pin.signal, 64);
-      const direction = pin.direction === "output" ? "output" : pin.direction === "input" ? "input" : "";
-      if (!label && !signal) continue;
-      if (!label || !signal || !direction) {
-        return { error: "Each connection needs a name, a direction, and a signal." };
-      }
-      pins.push({ id: `pin-${index + 1}`, label, direction, signal });
-    }
-    if (pins.length === 0) return { error: "Add at least one connection." };
+    const collected = collectPins(data.pins);
+    if (collected.error) return { error: collected.error };
+    const pins = collected.pins;
 
     const sql = await getSql();
     const typeOk = await sql`
@@ -717,6 +769,8 @@ export const updateEquipment = createServerFn({ method: "POST" })
       select kind from equipment where id = ${id} and user_id = ${context.userId}
     `;
     const kind = boxKind(data.kind, boxKind(existing[0]?.kind));
+    const markCustom = data.origin === "custom" || kind === "system";
+    const network = Array.isArray(data.network) ? JSON.stringify(migratePorts(data.network)) : null;
     const updated = await sql`
       update equipment set
         device_type_id = ${deviceTypeId},
@@ -725,7 +779,9 @@ export const updateEquipment = createServerFn({ method: "POST" })
         kind = ${kind},
         notes = ${notes},
         product_website = ${website},
-        pins_json = ${JSON.stringify(pins)}
+        pins_json = ${JSON.stringify(pins)},
+        origin = case when ${markCustom} then 'custom' else origin end,
+        network_json = coalesce(${network}, network_json)
       where id = ${id} and user_id = ${context.userId}
       returning id
     `;

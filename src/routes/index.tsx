@@ -22,7 +22,7 @@ function Home() {
             12G-SDI input. HDMI still does not land on SDI. A converter is its own box.
           </p>
           <SignedOut>
-            <Link to="/login" className="mt-6 inline-flex rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper">
+            <Link to="/login" className="ui-btn ui-btn-primary mt-6">
               Sign in to your library
             </Link>
           </SignedOut>
@@ -75,7 +75,7 @@ function StudioCounts() {
         <Count label="Drawings" value={drawings ?? undefined} />
       </div>
       <div className="flex flex-wrap gap-4">
-        <Link to="/draw" search={{ owner: "", drawing: 0, mode: "" }} className="inline-flex rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper">
+        <Link to="/draw" search={{ owner: "", drawing: 0, mode: "" }} className="ui-btn ui-btn-primary">
           Open Solventum
         </Link>
         <Link to="/library" className="inline-flex py-3 text-sm font-semibold underline underline-offset-4">

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Button, Field, HelpPane } from "@/components/ui/kit";
+import { HELP } from "@/lib/help/copy";
 import { propagate, type TimedDevice, type TimedEdge } from "@/lib/signal/propagate";
 
 export function SignalBoard({
@@ -37,53 +39,39 @@ export function SignalBoard({
   }, [playing, sourceId]);
 
   return (
-    <div className="absolute inset-0 z-20 overflow-auto bg-paper/95 p-4">
+    <div className="absolute inset-0 z-20 overflow-auto bg-paper p-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
+          <p className="ui-kicker">Latency</p>
           <h2 className="text-lg font-semibold">Signal</h2>
-          <p className="mt-1 max-w-xl text-sm text-muted">
-            Pick a source. Latency defaults are estimates until you type a measured value. The total includes every device on the path.
-          </p>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper" onClick={() => setPlaying(true)}>
-            Play
-          </button>
-          <button type="button" className="rounded-full border border-line px-4 py-2 text-sm" onClick={onClose}>
-            Back to drawing
-          </button>
+          <Button variant="primary" onClick={() => setPlaying(true)}>Play</Button>
+          <Button onClick={onClose}>Back to drawing</Button>
         </div>
       </div>
-      <label className="text-sm">
-        Source
-        <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} className="ml-2 rounded-lg border border-line bg-panel px-2 py-1">
-          {devices.map((device) => (
-            <option key={device.id} value={device.id}>{device.label}</option>
-          ))}
-        </select>
-      </label>
+      <HelpPane title="How the path is timed">{HELP.signal}</HelpPane>
+      {!devices.length ? <p className="mt-4 text-sm text-muted">Place a source before running the path.</p> : null}
+      <div className="mt-3 max-w-sm">
+        <Field label="Source" help="The box where this path starts. Downstream delay adds up from here.">
+          <select className="ui-select" value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+            {devices.map((device) => (
+              <option key={device.id} value={device.id}>{device.label}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
       {selected ? (
         <div className="mt-3 flex flex-wrap gap-2 text-sm">
-          <input
-            value={selected.latencyMs}
-            onChange={(event) => onTiming(selected.id, { latencyMs: Number(event.target.value) || 0, estimate: false })}
-            className="w-24 rounded-lg border border-line bg-panel px-2 py-1"
-            aria-label="Latency milliseconds"
-          />
-          <span className="self-center text-muted">ms</span>
-          <input
-            value={selected.latencyFrames}
-            onChange={(event) => onTiming(selected.id, { latencyFrames: Number(event.target.value) || 0, estimate: false })}
-            className="w-20 rounded-lg border border-line bg-panel px-2 py-1"
-            aria-label="Latency frames"
-          />
-          <span className="self-center text-muted">frames</span>
-          <input
-            value={selected.format}
-            onChange={(event) => onTiming(selected.id, { format: event.target.value })}
-            placeholder="Format"
-            className="rounded-lg border border-line bg-panel px-2 py-1"
-          />
+          <Field label="Milliseconds" help="Measured glass-to-glass for this box. Replaces the estimate.">
+            <input className="ui-input w-28" value={selected.latencyMs} aria-label="Latency milliseconds" onChange={(event) => onTiming(selected.id, { latencyMs: Number(event.target.value) || 0, estimate: false })} />
+          </Field>
+          <Field label="Frames" help="Frame delay at the show format. 1 frame at 59.94 is about 16.7 ms.">
+            <input className="ui-input w-24" value={selected.latencyFrames} aria-label="Latency frames" onChange={(event) => onTiming(selected.id, { latencyFrames: Number(event.target.value) || 0, estimate: false })} />
+          </Field>
+          <Field label="Format" help="The raster this path is timed at, such as 1080p59.94 or 2160p60.">
+            <input className="ui-input" value={selected.format} placeholder="1080p59.94" onChange={(event) => onTiming(selected.id, { format: event.target.value })} />
+          </Field>
           {selected.estimate ? <span className="self-center text-xs text-muted">Estimate</span> : null}
         </div>
       ) : null}

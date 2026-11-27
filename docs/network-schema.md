@@ -1,4 +1,8 @@
-# Network file schema `pvllc.network/1.0.0`
+# Network file schema `pvllc.network/1.1.0`
+
+A saved 1.0.0 drawing still opens. Each interface gains a NIC role (`management`, `media`, or `control`), a dotted mask, control protocol and port, a media transport (`dante`, `aes67`, `ndi`, `st2110`, `st2022-6`, `st2022-7`), multicast groups, and a PTP domain and role. Empty fields stay empty. An address that was already typed is not rewritten.
+
+A direct Ethernet link is also checked: the two ends must share a VLAN, and static addresses must sit in the same prefix.
 
 Each drawing box can carry interfaces. The single IP shown on the node is the first address, kept in sync when the table changes.
 
