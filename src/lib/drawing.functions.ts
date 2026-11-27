@@ -216,10 +216,10 @@ export const saveSystem = createServerFn({ method: "POST" })
     if (dup.length) return { error: "That system name is already in the library." };
     await sql`
       insert into equipment (
-        user_id, device_type_id, manufacturer_id, model, kind, notes, product_website, pins_json, graph_json
+        user_id, device_type_id, manufacturer_id, model, kind, notes, product_website, pins_json, graph_json, origin
       ) values (
         ${context.userId}, ${deviceTypeId}, ${manufacturerId}, ${name}, ${"system"},
-        ${notes}, ${""}, ${JSON.stringify(pins)}, ${JSON.stringify(graph)}
+        ${notes}, ${""}, ${JSON.stringify(pins)}, ${JSON.stringify(graph)}, ${"custom"}
       )
     `;
     return { error: null };

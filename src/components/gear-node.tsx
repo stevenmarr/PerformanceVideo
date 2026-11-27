@@ -78,6 +78,7 @@ export function GearNodeCard({
   signalColors,
   wired = false,
   selected = false,
+  custom = false,
 }: {
   deviceType: string;
   manufacturer: string;
@@ -92,6 +93,7 @@ export function GearNodeCard({
   signalColors: Record<string, string>;
   wired?: boolean;
   selected?: boolean;
+  custom?: boolean;
 }) {
   const inputs = pins.filter((pin) => pin.direction === "input");
   const outputs = pins.filter((pin) => pin.direction === "output");
@@ -109,6 +111,11 @@ export function GearNodeCard({
         style={{ background: color, color: inkOn(color), height: HEADER }}
       >
         <span className="min-w-0 truncate">{deviceType || "Device"}</span>
+        {custom ? (
+          <span className="rounded-full bg-[#d6a35c] px-2 py-0.5 text-[10px] font-semibold tracking-normal text-[#1a1206] normal-case">
+            Custom
+          </span>
+        ) : null}
         {pins.some((pin) => /unverified|count unknown/i.test(pin.label)) ? (
           <span className="rounded-full bg-paper px-2 py-0.5 text-[10px] font-semibold tracking-normal text-ink normal-case">
             Unverified
@@ -177,7 +184,7 @@ function PinRow({
         />
       ) : null}
       {side === "input" && !wired ? <span className="ml-1">{dot}</span> : null}
-      <span className={`min-w-0 truncate px-2 text-xs leading-tight ${side === "input" ? "text-left" : "text-right"}`} title={label}>
+      <span className={`min-w-0 truncate px-2 text-[13px] leading-tight font-medium ${side === "input" ? "text-left" : "text-right"}`} title={label}>
         {pin.label || "Connection"}
         <span style={{ color }}> · {pin.signal || "Signal"}</span>
       </span>

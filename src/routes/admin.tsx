@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { HelpPane } from "@/components/ui/kit";
+import { HELP } from "@/lib/help/copy";
 import { DatabasePanel } from "@/components/admin/database-panel";
 import { DevicesPanel } from "@/components/admin/devices-panel";
 import { UsersPanel } from "@/components/admin/users-panel";
@@ -52,6 +54,9 @@ function AdminPage() {
         Accounts, device definitions, and the database. Every change is written to the audit log. The security model is in the
         admin security note shipped with the app.
       </p>
+      <div className="mt-4 max-w-2xl">
+        <HelpPane title="Admin">{HELP.admin}</HelpPane>
+      </div>
       {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
       {admin === false ? (
         <p className="mt-6 max-w-xl text-sm">
@@ -72,7 +77,7 @@ function AdminPage() {
               <button
                 key={id}
                 type="button"
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${tab === id ? "bg-ink text-paper" : "border border-line"}`}
+                className={`ui-btn ${tab === id ? "ui-btn-primary" : ""}`}
                 onClick={() => setTab(id)}
               >
                 {label}
@@ -90,7 +95,7 @@ function AdminPage() {
                 placeholder="Filter the audit log"
                 className="mb-3 w-full max-w-md rounded-xl border border-line bg-panel px-3 py-2 text-sm"
               />
-              <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
+              <table className="ui-table min-w-[48rem]">
                 <thead>
                   <tr className="border-b border-line text-xs tracking-wide text-muted uppercase">
                     <th className="py-2 pr-3 font-medium">When</th>

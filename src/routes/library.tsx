@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
+import { HelpPane } from "@/components/ui/kit";
+import { HELP } from "@/lib/help/copy";
 import { GearNodeCard } from "@/components/gear-node";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -26,8 +28,7 @@ import { SYSTEMS_CUSTOM, libraryGroupName } from "@/lib/system-sync";
 
 export const Route = createFileRoute("/library")({ component: LibraryPage });
 
-const inputClass =
-  "mt-1 w-full rounded-xl border border-line bg-panel px-3 py-3 text-ink outline-none focus:border-ink";
+const inputClass = "ui-input mt-1";
 
 const KINDS = [
   ["device", "Device"],
@@ -83,6 +84,9 @@ function LibraryPage() {
         Saved models are on the left. Build or edit one on the right, including its connections and how the box will look
         on the drawing.
       </p>
+      <div className="mt-4 max-w-2xl">
+        <HelpPane title="Library">{HELP.library} A custom module shows a brass Custom mark on the drawing. Built-in modules do not.</HelpPane>
+      </div>
       {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
       {!catalog ? (
         <div className="mt-8 h-40 animate-pulse rounded-[var(--radius-card)] bg-line" />

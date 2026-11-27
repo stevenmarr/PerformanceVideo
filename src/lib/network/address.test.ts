@@ -88,7 +88,7 @@ describe("network table", () => {
     assert.ok(groups.some((group) => group.subnet === "2001:db8::/32"));
     const csv = networkToCsv(v6);
     assert.match(csv, /2001:db8:1::1/);
-    assert.equal(networkDocument("Show", v6).schema, "pvllc.network/1.0.0");
+    assert.equal(networkDocument("Show", v6).schema, "pvllc.network/1.1.0");
     assert.equal(networkDocument("Show", v6).devices[1]?.interfaces[0]?.address, "2001:0db8:0001::1");
   });
 });

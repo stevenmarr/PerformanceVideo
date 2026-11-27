@@ -1,5 +1,7 @@
 /** IPv4 and IPv6 checks for per-device interfaces. */
 
+import { NETWORK_SCHEMA } from "./schema.ts";
+
 export type NetInterface = {
   name: string;
   mode: "dhcp" | "static";
@@ -9,6 +11,14 @@ export type NetInterface = {
   vlan: number | null;
   mac: string;
   hostname: string;
+  role?: string;
+  mask?: string;
+  controlProtocol?: string;
+  controlPort?: number | null;
+  mediaTransport?: string;
+  multicast?: string[];
+  ptpDomain?: number | null;
+  ptpRole?: string;
 };
 
 export type NetDevice = {
@@ -27,7 +37,13 @@ export type NetIssue = {
     | "overlapping-subnets"
     | "vlan-mismatch"
     | "duplicate-hostname"
-    | "duplicate-mac";
+    | "duplicate-mac"
+    | "link-vlan-mismatch"
+    | "link-subnet-mismatch"
+    | "bad-vlan"
+    | "bad-port"
+    | "bad-multicast"
+    | "bad-ptp";
   message: string;
   deviceId: string;
 };
@@ -39,6 +55,15 @@ export type NetGroup = {
 };
 
 const MAC = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
+
+function isMulticast(value: string): boolean {
+  const v4 = parseIpv4(value);
+  if (v4 != null) {
+    const first = (v4 >>> 24) & 255;
+    return first >= 224 && first <= 239;
+  }
+  return /^ff[0-9a-f]{2}:/i.test(value.trim()) && parseIpv6(value) != null;
+}
 
 export function parseIpv4(value: string): number | null {
   const parts = value.trim().split(".");
@@ -229,6 +254,20 @@ export function validateNetwork(devices: NetDevice[]): NetIssue[] {
         if (prior) issues.push({ level: "error", code: "duplicate-hostname", deviceId: device.id, message: `Hostname ${host} is used by ${prior} and ${device.label}.` });
         else hosts.set(host, device.label);
       }
+      if (iface.vlan != null && (!Number.isInteger(iface.vlan) || iface.vlan < 1 || iface.vlan > 4094)) {
+        issues.push({ level: "error", code: "bad-vlan", deviceId: device.id, message: `${device.label} VLAN ${iface.vlan} is outside 1–4094.` });
+      }
+      if (iface.controlPort != null && (!Number.isInteger(iface.controlPort) || iface.controlPort < 1 || iface.controlPort > 65535)) {
+        issues.push({ level: "error", code: "bad-port", deviceId: device.id, message: `${device.label} control port ${iface.controlPort} is not a TCP/UDP port.` });
+      }
+      if (iface.ptpDomain != null && (!Number.isInteger(iface.ptpDomain) || iface.ptpDomain < 0 || iface.ptpDomain > 127)) {
+        issues.push({ level: "error", code: "bad-ptp", deviceId: device.id, message: `${device.label} PTP domain ${iface.ptpDomain} is outside 0–127.` });
+      }
+      for (const group of iface.multicast ?? []) {
+        if (!isMulticast(group)) {
+          issues.push({ level: "error", code: "bad-multicast", deviceId: device.id, message: `${device.label} multicast ${group} is not a multicast address.` });
+        }
+      }
     }
   }
 
@@ -281,7 +320,8 @@ export function groupNetwork(devices: NetDevice[]): NetGroup[] {
       const vlan = iface.vlan == null ? "No VLAN" : `VLAN ${iface.vlan}`;
       const key = `${vlan}|${subnet}`;
       const group = groups.get(key) ?? { vlan, subnet, devices: [] };
-      group.devices.push({ id: device.id, label: device.label, address: iface.address || iface.mode, hostname: iface.hostname });
+      const shown = iface.address.trim() || (iface.mode === "dhcp" ? "DHCP" : "—");
+      group.devices.push({ id: device.id, label: device.label, address: shown, hostname: iface.hostname });
       groups.set(key, group);
     }
   }
@@ -289,12 +329,19 @@ export function groupNetwork(devices: NetDevice[]): NetGroup[] {
 }
 
 export function networkToCsv(devices: NetDevice[]): string {
-  const header = ["device", "interface", "mode", "address", "cidr", "gateway", "vlan", "mac", "hostname"];
+  const header = [
+    "device", "interface", "role", "mode", "address", "cidr", "mask", "gateway", "vlan", "mac", "hostname",
+    "control_protocol", "control_port", "media_transport", "multicast", "ptp_domain", "ptp_role",
+  ];
   const lines = [header.join(",")];
   for (const device of devices) {
     for (const iface of device.interfaces) {
       lines.push(
-        [device.label, iface.name, iface.mode, iface.address, iface.cidr ?? "", iface.gateway, iface.vlan ?? "", iface.mac, iface.hostname]
+        [
+          device.label, iface.name, iface.role ?? "", iface.mode, iface.address, iface.cidr ?? "", iface.mask ?? "",
+          iface.gateway, iface.vlan ?? "", iface.mac, iface.hostname, iface.controlProtocol ?? "", iface.controlPort ?? "",
+          iface.mediaTransport ?? "", (iface.multicast ?? []).join(" "), iface.ptpDomain ?? "", iface.ptpRole ?? "",
+        ]
           .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
           .join(","),
       );
@@ -303,7 +350,7 @@ export function networkToCsv(devices: NetDevice[]): string {
   return lines.join("\n");
 }
 
-export const NETWORK_SCHEMA = "pvllc.network/1.0.0";
+export { NETWORK_SCHEMA };
 
 export function networkDocument(show: string, devices: NetDevice[]) {
   return { schema: NETWORK_SCHEMA, show, devices };

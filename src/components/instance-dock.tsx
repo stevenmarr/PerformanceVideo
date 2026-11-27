@@ -1,4 +1,6 @@
 import type { FormEvent } from "react";
+import { Badge, Button, Field, HelpPane } from "@/components/ui/kit";
+import { HELP } from "@/lib/help/copy";
 
 export function InstanceDock({
   side,
@@ -8,10 +10,13 @@ export function InstanceDock({
   unitId,
   ip,
   notes,
+  custom = false,
   readOnly = false,
   onUnitId,
   onIp,
   onNotes,
+  onEdit,
+  onDuplicate,
 }: {
   side: "bottom" | "side";
   manufacturer: string;
@@ -20,10 +25,13 @@ export function InstanceDock({
   unitId: string;
   ip: string;
   notes: string;
+  custom?: boolean;
   readOnly?: boolean;
   onUnitId: (value: string) => void;
   onIp: (value: string) => void;
   onNotes: (value: string) => void;
+  onEdit?: () => void;
+  onDuplicate?: () => void;
 }) {
   const docked =
     side === "side"
@@ -35,39 +43,31 @@ export function InstanceDock({
       className={docked}
       onSubmit={(event: FormEvent) => event.preventDefault()}
     >
-      <p className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">This instance</p>
+      <div className="flex items-center gap-2">
+        <p className="ui-kicker">This box</p>
+        {custom || kind === "system" ? <Badge tone="custom">Custom</Badge> : <Badge tone="builtin">Built-in</Badge>}
+      </div>
       <p className="mt-1 text-sm font-semibold">
         {manufacturer} {model}
       </p>
-      {kind === "system" ? <p className="text-xs text-muted">System. The pull list counts it as one unit.</p> : null}
-      <label className="mt-3 block text-sm">
-        Unit ID
-        <input
-          className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-          value={unitId}
-          readOnly={readOnly}
-          onChange={(event) => onUnitId(event.target.value)}
-        />
-      </label>
-      <label className="mt-2 block text-sm">
-        IP address
-        <input
-          className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-          value={ip}
-          readOnly={readOnly}
-          placeholder="192.168.0.175"
-          onChange={(event) => onIp(event.target.value)}
-        />
-      </label>
-      <label className="mt-2 block text-sm">
-        Special notes
-        <input
-          className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink outline-none"
-          value={notes}
-          readOnly={readOnly}
-          onChange={(event) => onNotes(event.target.value)}
-        />
-      </label>
+      <HelpPane title="This box">{HELP.unitId}</HelpPane>
+      <div className="mt-3 space-y-2">
+        <Field label="Unit ID" help={HELP.unitId}>
+          <input className="ui-input" value={unitId} readOnly={readOnly} onChange={(event) => onUnitId(event.target.value)} />
+        </Field>
+        <Field label="IP address" help={HELP.ip}>
+          <input className="ui-input" value={ip} readOnly={readOnly} placeholder="10.10.10.21" onChange={(event) => onIp(event.target.value)} />
+        </Field>
+        <Field label="Special notes" help={HELP.notes}>
+          <input className="ui-input" value={notes} readOnly={readOnly} onChange={(event) => onNotes(event.target.value)} />
+        </Field>
+      </div>
+      {!readOnly && (onEdit || onDuplicate) ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {onEdit ? <Button onClick={onEdit}>Edit module</Button> : null}
+          {onDuplicate ? <Button onClick={onDuplicate}>Duplicate module</Button> : null}
+        </div>
+      ) : null}
     </form>
   );
 }

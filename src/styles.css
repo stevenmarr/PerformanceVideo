@@ -8,6 +8,9 @@
   --color-line: #34302a;
   --color-muted: #a8a296;
   --color-danger: #fb7185;
+  --color-accent: #d6a35c;
+  --color-ok: #86efac;
+  --color-warn: #fbbf24;
   --radius-card: 0.875rem;
 }
 
@@ -247,4 +250,212 @@ html[data-theme="light"] .brand-logo-on-light {
 .brand-logo:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel);
+  color: var(--color-ink);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.ui-btn:hover {
+  border-color: var(--color-ink);
+}
+
+.ui-btn:disabled {
+  opacity: 0.5;
+}
+
+.ui-btn-primary {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-color: var(--color-ink);
+}
+
+.ui-btn-ghost {
+  background: transparent;
+}
+
+.ui-btn-danger {
+  color: var(--color-danger);
+}
+
+.ui-btn[aria-pressed="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.ui-input,
+.ui-select {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-line);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.875rem;
+}
+
+.ui-input:focus,
+.ui-select:focus,
+.ui-btn:focus-visible,
+.ui-help-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.ui-field-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.ui-help-btn {
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  width: 1.1rem;
+  height: 1.1rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: var(--color-muted);
+  background: transparent;
+}
+
+.ui-hint {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.ui-help-pane {
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-panel));
+  padding: 0.6rem 0.8rem;
+}
+
+.ui-help-pane summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.ui-panel {
+  border: 1px solid var(--color-line);
+  background: var(--color-panel);
+  border-radius: var(--radius-card);
+  padding: 0.9rem;
+}
+
+.ui-panel-title {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ui-badge-custom {
+  background: var(--color-accent);
+  color: #1a1206;
+}
+
+.ui-badge-builtin {
+  border: 1px solid var(--color-line);
+  color: var(--color-muted);
+}
+
+.ui-badge-warn {
+  background: color-mix(in srgb, var(--color-warn) 25%, transparent);
+  color: var(--color-warn);
+}
+
+.ui-empty {
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-card);
+  padding: 1.25rem;
+  text-align: center;
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ui-table th,
+.ui-table td {
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ui-table th {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.ui-dialog-back {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  background: color-mix(in srgb, var(--color-ink) 28%, transparent);
+  padding: 1rem;
+}
+
+.ui-dialog {
+  margin-top: 2rem;
+  width: min(100%, 52rem);
+  border: 1px solid var(--color-line);
+  border-radius: 1rem;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  padding: 1rem;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 35%);
+}
+
+.ui-kicker {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted);
 }
